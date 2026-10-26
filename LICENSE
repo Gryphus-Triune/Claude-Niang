@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2026 T7moris
+Copyright (c) 2026 GPT-Niang contributors
+Copyright (c) 2026 Claude娘额度挂件 (Claude-Niang) contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Claude娘 is a modified version of GPT-Niang (https://github.com/T7moris/GPT-Niang)
+for the Claude desktop app. No GPT-Niang character image is included. The quotes
+and the click sounds in this package are covered by this license.
+
+The default character image (claude-niang/assets/claude-niang.png) and the
+extension icon made from it (claude-niang/extension/icon.png) are (c) the
+repository owner and are not covered by this license. Images that you import into
+the widget remain yours.
+
+Third-party files: claude-niang/runtime/webview2/ contains the Microsoft Edge
+WebView2 SDK runtime files, redistributed under their own license
+(claude-niang/runtime/webview2/LICENSE.txt).

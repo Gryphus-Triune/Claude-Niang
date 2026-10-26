@@ -1,0 +1,23 @@
+# Machine-specific installation, account and runtime data
+**/installation.json
+**/install-log.txt
+**/claude-desktop-mcp.json
+**/state/
+**/webview/
+**/cache/
+**/*-result*.json
+**/*-error.txt
+**/preview.png
+**/*.tmp
+**/*.bak
+**/worker.lock
+**/settings.json
+**/session-reset.flag
+**/refresh.flag
+node_modules/
+dist/
+.build-*/
+.env
+.env.*
+Thumbs.db
+.DS_Store
