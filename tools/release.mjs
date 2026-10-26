@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const rootFiles=['README.md','LICENSE','CHANGELOG.md','CONTRIBUTING.md','.gitignore','.gitattributes','build-release.ps1',
+const rootFiles=['README.md','LICENSE','CHANGELOG.md','CONTRIBUTING.md','docs/customization.md','docs/images/quota-preview.png','.gitignore','.gitattributes','build-release.ps1',
   '安装Claude娘.cmd','打开Claude娘.cmd','登录Claude账号.cmd','检测套餐.cmd','停用Claude娘.cmd','tools/release.mjs','.github/workflows/ci.yml'];
 function safeRelative(value){
   if(typeof value!=='string' || !value || value.includes('\\') || path.posix.isAbsolute(value) || /^[A-Za-z]:/.test(value) || value.split('/').some(x=>!x || x==='.' || x==='..'))throw new Error('Unsafe release path');
