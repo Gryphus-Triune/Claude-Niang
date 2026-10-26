@@ -1,0 +1,37 @@
+name: 功能建议
+description: 描述使用场景，以及希望挂件帮助你完成的事。
+title: "[建议] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请描述你遇到的具体场景和目标，方便判断怎样改进最有帮助。
+        如果附带日志或截图，请删去 Windows 用户名、个人完整路径、邮箱、Cookie、令牌和其他凭据；不要上传浏览器配置或登录数据。
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 你通常在什么时候需要这个功能？目前遇到了什么不便？
+      placeholder: 当我……时，目前需要……
+    validations:
+      required: true
+  - type: textarea
+    id: desired_outcome
+    attributes:
+      label: 希望达到的效果
+      description: 描述你想完成的事或希望看到的行为。
+      placeholder: 我希望可以……，这样就能……
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_approach
+    attributes:
+      label: 实现想法或参考（可选）
+      description: 可以补充操作方式、示意图或公开参考链接。
+  - type: checkboxes
+    id: privacy_check
+    attributes:
+      label: 发布前检查
+      options:
+        - label: 我已检查正文和附件，删去了用户名、个人完整路径和凭据，未上传登录数据。
+          required: true

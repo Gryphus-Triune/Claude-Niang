@@ -1,0 +1,88 @@
+name: 安装或启动失败
+description: 安装器报错、缺少组件，或安装后挂件无法出现。
+title: "[安装] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先查看 [常见问题](https://github.com/Gryphus-Triune/Claude-Niang#常见问题)。
+        这里只需要环境和错误信息。粘贴日志或上传截图前，请删去 Windows 用户名、个人完整路径、邮箱、Cookie、令牌和其他凭据；不要上传 installation.json、浏览器配置或登录数据。
+  - type: input
+    id: widget_version
+    attributes:
+      label: 挂件版本
+      description: 发布包文件名中的版本，或右键菜单里显示的版本。
+      placeholder: 例如 1.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: windows_version
+    attributes:
+      label: Windows 版本
+      options:
+        - Windows 11
+        - Windows 10
+        - 其他或不确定
+    validations:
+      required: true
+  - type: dropdown
+    id: architecture
+    attributes:
+      label: CPU 架构
+      description: 可在 Windows 设置 → 系统 → 系统信息中查看“系统类型”。
+      options:
+        - x64
+        - ARM64
+        - 不确定
+    validations:
+      required: true
+  - type: input
+    id: node_version
+    attributes:
+      label: Node.js 版本
+      description: 可填写安装器显示的版本；没有安装或不确定时直接说明即可。
+      placeholder: 例如 22.x、未安装或不确定
+    validations:
+      required: true
+  - type: dropdown
+    id: webview2_status
+    attributes:
+      label: WebView2 状态
+      options:
+        - 已安装，安装器检查通过
+        - 安装器提示缺少或检查失败
+        - 不确定
+    validations:
+      required: true
+  - type: input
+    id: path_characters
+    attributes:
+      label: 安装位置是否含中文、空格或特殊字符
+      description: 只说明字符类型即可，不要粘贴自己的完整安装路径。
+      placeholder: 例如含中文和空格，或只有英文字母
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 操作步骤与实际结果
+      description: 从下载、解压到出现问题，简要说明做了什么，以及卡在哪一步。
+      placeholder: |
+        1. 从 Releases 下载并完整解压
+        2. 双击“安装Claude娘.cmd”
+        3. 出现……
+    validations:
+      required: true
+  - type: textarea
+    id: error_message
+    attributes:
+      label: 错误提示或已脱敏的日志
+      description: 优先复制具体错误和错误码；没有报错文字时可说明挂件的表现。
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy_check
+    attributes:
+      label: 发布前检查
+      options:
+        - label: 我已检查正文、日志和截图，删去了用户名、个人完整路径和凭据，未上传登录数据。
+          required: true

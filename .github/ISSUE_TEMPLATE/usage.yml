@@ -1,0 +1,82 @@
+name: 额度读取或显示问题
+description: 读取失败、数据时间异常，或额度气泡与预期不一致。
+title: "[额度] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先查看 [常见问题](https://github.com/Gryphus-Triune/Claude-Niang#常见问题)，并留意气泡中的数据时间和错误提示。
+        无需提供账号邮箱、组织编号或实际余额。粘贴日志或上传截图前，请删去 Windows 用户名、个人完整路径、邮箱、Cookie、令牌和其他凭据；不要上传浏览器配置、登录数据或完整 state 目录。
+  - type: input
+    id: widget_version
+    attributes:
+      label: 挂件版本
+      placeholder: 例如 1.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: windows_version
+    attributes:
+      label: Windows 版本
+      options:
+        - Windows 11
+        - Windows 10
+        - 其他或不确定
+    validations:
+      required: true
+  - type: dropdown
+    id: plan_type
+    attributes:
+      label: 套餐类型（可选）
+      description: 只选套餐类型即可，不需要任何账号或付款信息。
+      options:
+        - 不提供或不确定
+        - Free
+        - Pro
+        - Max 5x
+        - Max 20x
+        - Team / Enterprise 或其他组织套餐
+  - type: dropdown
+    id: affected_surface
+    attributes:
+      label: 问题出现在哪里
+      options:
+        - 挂件的额度气泡
+        - Claude 对话中的桌面扩展
+        - 两处都有
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 操作步骤与预期结果
+      description: 简要说明点击了什么、看到了什么，以及你原本期待的结果。无需写出实际额度数字。
+      placeholder: |
+        1. 打开挂件后点击角色
+        2. 显示……
+        3. 预期……
+    validations:
+      required: true
+  - type: textarea
+    id: error_message
+    attributes:
+      label: 错误消息或显示异常
+      description: 复制具体提示；如果没有错误消息，请描述异常。请先删去个人信息。
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: data_time
+    attributes:
+      label: 界面显示的数据时间
+      description: 可以填写“刚刚”“上次读取于……”或“没有显示时间”；不需要组织或账号信息。
+      placeholder: 例如上次读取于 10 分钟前，或没有显示时间
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy_check
+    attributes:
+      label: 发布前检查
+      options:
+        - label: 我已检查正文、日志和截图，删去了用户名、个人完整路径和凭据，未上传登录数据。
+          required: true

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 安装说明与常见问题
+    url: https://github.com/Gryphus-Triune/Claude-Niang#常见问题
+    about: 先查看常见问题；仍无法解决时，请选择对应的问题模板。
