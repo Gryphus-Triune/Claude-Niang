@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "image": {
+    "file": "claude-niang.png",
+    "sha256": "51170174c4350fd1c93463bbb17c36d332ec9728929f2c4f0b0dd6f38fe75990",
+    "width": 1254,
+    "height": 1254
+  },
+  "glasses": {
+    "x": 0.50574,
+    "y": 0.54457,
+    "span": 0.29179,
+    "angle": -7.22
+  },
+  "face": {
+    "x": 0.49841,
+    "y": 0.55821,
+    "width": 0.21132,
+    "height": 0.16746
+  }
+}

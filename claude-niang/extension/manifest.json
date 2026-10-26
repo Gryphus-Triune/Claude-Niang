@@ -1,0 +1,54 @@
+{
+  "manifest_version": "0.3",
+  "name": "claude-niang-usage",
+  "display_name": "Claude娘额度",
+  "version": "1.2.0",
+  "description": "让 Claude 直接告诉你当前套餐和剩余额度（5 小时、每周、分模型每周、额外用量）。数据来自本机的 Claude 娘挂件。",
+  "long_description": "需要先安装并登录 Claude 娘额度挂件（Windows）。扩展只读取挂件在本机保存的额度快照，或请正在运行的挂件立即刷新一次；不会创建聊天、不调用模型，也接触不到任何 Cookie 或令牌。\n\n用法：在对话里问「我还剩多少 Claude 额度？」「5 小时额度什么时候重置？」即可。",
+  "author": {
+    "name": "Claude娘额度挂件 contributors"
+  },
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.mjs"
+      ],
+      "env": {
+        "CLAUDE_NIANG_DATA_DIR": "${user_config.data_dir}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_claude_usage",
+      "description": "查看 Claude 套餐与剩余额度（5 小时、每周、分模型每周、额外用量）和重置时间。只读。"
+    }
+  ],
+  "keywords": [
+    "claude",
+    "usage",
+    "quota",
+    "额度"
+  ],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": [
+      "win32"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  },
+  "user_config": {
+    "data_dir": {
+      "type": "directory",
+      "title": "挂件数据文件夹（一般不用改）",
+      "description": "Claude 娘挂件保存额度快照的位置。留空即使用默认的 %LOCALAPPDATA%\\ClaudeNiang\\state。",
+      "required": false
+    }
+  }
+}

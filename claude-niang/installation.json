@@ -1,0 +1,10 @@
+{
+    "version":  "1.2.0",
+    "appDir":  "E:\\Claude Niang\\claude-niang",
+    "dataDir":  "C:\\Users\\johnn\\AppData\\Local\\ClaudeNiang\\state",
+    "webviewDir":  "C:\\Users\\johnn\\AppData\\Local\\ClaudeNiang\\webview",
+    "nodePath":  "C:\\Program Files\\nodejs\\node.exe",
+    "nodeVersion":  "v24.18.0",
+    "startupShortcut":  "C:\\Users\\johnn\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\Claude Niang.lnk",
+    "installedAt":  "2026-10-26T13:05:05.3670693Z"
+}

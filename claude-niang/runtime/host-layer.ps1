@@ -1,0 +1,99 @@
+﻿if(!('ClaudeWidgetZOrderNative' -as [type])){
+Add-Type -TypeDefinition @'
+using System;using System.Runtime.InteropServices;
+public static class ClaudeWidgetZOrderNative {
+ [DllImport("user32.dll")]public static extern IntPtr GetWindow(IntPtr h,uint command);
+ [DllImport("user32.dll")]public static extern bool IsWindow(IntPtr h);
+ [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
+ [DllImport("user32.dll")]public static extern bool IsIconic(IntPtr h);
+ [DllImport("user32.dll",EntryPoint="GetWindowLongPtrW")]public static extern IntPtr GetWindowLongPtr(IntPtr h,int index);
+ [DllImport("user32.dll",EntryPoint="SetWindowLongPtrW")]public static extern IntPtr SetWindowLongPtr(IntPtr h,int index,IntPtr value);
+ [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr after,int x,int y,int width,int height,uint flags);
+ [DllImport("dwmapi.dll")]static extern int DwmGetWindowAttribute(IntPtr h,int attribute,out uint value,int size);
+ public static bool Topmost(IntPtr h){return (GetWindowLongPtr(h,-20).ToInt64()&8)!=0;}
+ public static bool NonActivatingOverlay(long extended){return (extended&0x08000080)==0x08000080;}
+ public static bool VisibleSurface(IntPtr h){uint cloaked;return IsWindowVisible(h)&&(DwmGetWindowAttribute(h,14,out cloaked,4)!=0||cloaked==0);}
+ public static IntPtr PreviousVisible(IntPtr h){
+  IntPtr prior=GetWindow(h,3);for(int n=0;n<10000&&prior!=IntPtr.Zero;n++){
+   if(VisibleSurface(prior))return prior;prior=GetWindow(prior,3);
+  }return IntPtr.Zero;
+ }
+ public static bool AboveHostWithOwnedPeers(IntPtr widget,IntPtr host,IntPtr companion){
+  IntPtr prior=PreviousVisible(host);
+  for(int n=0;n<10000&&prior!=IntPtr.Zero;n++){
+   if(prior==widget)return true;
+   if(companion!=IntPtr.Zero&&prior==companion){prior=PreviousVisible(prior);continue;}
+   // Ordinary dialogs must keep the original placement policy. Only a tool
+   // window that cannot activate is eligible to coexist as an overlay peer.
+   if(!NonActivatingOverlay(GetWindowLongPtr(prior,-20).ToInt64()))return false;
+   IntPtr owner=GetWindow(prior,4);bool related=false;
+   for(int depth=0;depth<256&&owner!=IntPtr.Zero;depth++){
+    if(owner==host){related=true;break;}owner=GetWindow(owner,4);
+   }
+   if(!related)return false;
+   prior=PreviousVisible(prior);
+  }return false;
+ }
+}
+'@
+}
+$script:claudeZOrderBands=@{}
+function Set-WidgetDesktopLayer([IntPtr]$Widget,[bool]$Topmost=$true){
+  # A desktop pet must not be owned (and destroyed or minimized) by the chat window.
+  if([ClaudeWidgetZOrderNative]::GetWindowLongPtr($Widget,-8)-ne [IntPtr]::Zero){
+    [ClaudeWidgetZOrderNative]::SetWindowLongPtr($Widget,-8,[IntPtr]::Zero)|Out-Null
+  }
+  if([ClaudeWidgetZOrderNative]::Topmost($Widget)-ne $Topmost){
+    $band=if($Topmost){[IntPtr](-1)}else{[IntPtr](-2)}
+    [ClaudeWidgetZOrderNative]::SetWindowPos($Widget,$band,0,0,0,0,0x13)|Out-Null
+  }
+}
+function Set-WidgetAboveHost([IntPtr]$Widget,[IntPtr]$HostWindowHandle,[IntPtr]$Companion=[IntPtr]::Zero){
+  if(![ClaudeWidgetZOrderNative]::IsWindow($Widget) -or ![ClaudeWidgetZOrderNative]::IsWindow($HostWindowHandle)){
+    return [pscustomobject]@{ok=$false;changed=$false;reason='invalid-window'}
+  }
+  if(![ClaudeWidgetZOrderNative]::VisibleSurface($HostWindowHandle) -or [ClaudeWidgetZOrderNative]::IsIconic($HostWindowHandle)){
+    return [pscustomobject]@{ok=$false;changed=$false;reason='host-not-visible'}
+  }
+  $key=$Widget.ToInt64().ToString();$changed=$false
+  # A scheduler-owned background process cannot reliably insert an unowned
+  # overlay above the active app. Native ownership keeps both in one layer.
+  # WPF receives Closed when its owner is destroyed; the supervisor recreates
+  # the GUI for the next real main window.
+  if([ClaudeWidgetZOrderNative]::GetWindowLongPtr($Widget,-8)-ne $HostWindowHandle){
+    [ClaudeWidgetZOrderNative]::SetWindowLongPtr($Widget,-8,$HostWindowHandle)|Out-Null
+    if([ClaudeWidgetZOrderNative]::GetWindowLongPtr($Widget,-8)-ne $HostWindowHandle){
+      return [pscustomobject]@{ok=$false;changed=$false;reason='owner-attachment-failed'}
+    }
+    $changed=$true
+  }
+  $hostBand=[ClaudeWidgetZOrderNative]::Topmost($HostWindowHandle)
+  $widgetBand=[ClaudeWidgetZOrderNative]::Topmost($Widget)
+  if(!$script:claudeZOrderBands.ContainsKey($key) -or $script:claudeZOrderBands[$key]-ne $hostBand -or $widgetBand-ne $hostBand){
+    $band=if($hostBand){[IntPtr](-1)}else{[IntPtr](-2)}
+    if(![ClaudeWidgetZOrderNative]::SetWindowPos($Widget,$band,0,0,0,0,0x13)){
+      return [pscustomobject]@{ok=$false;changed=$false;reason='band-change-failed'}
+    }
+    $script:claudeZOrderBands[$key]=$hostBand;$changed=$true
+  }
+  # WPF may create invisible owner windows. Visible adjacency, rather than raw
+  # HWND adjacency, avoids reordering forever against an invisible owner.
+  $previous=[ClaudeWidgetZOrderNative]::PreviousVisible($HostWindowHandle)
+  # The music light surface is deliberately between the pet and its host.
+  # Treat that one known surface as part of the pair, avoiding z-order churn.
+  if($Companion-ne [IntPtr]::Zero -and $previous-eq $Companion){
+    $previous=[ClaudeWidgetZOrderNative]::PreviousVisible($Companion)
+  }
+  if($previous-eq $Widget){return [pscustomobject]@{ok=$true;changed=$changed;adjacent=$true;hostTopmost=$hostBand}}
+  if([ClaudeWidgetZOrderNative]::AboveHostWithOwnedPeers($Widget,$HostWindowHandle,$Companion)){
+    return [pscustomobject]@{ok=$true;changed=$changed;adjacent=$false;ownedPeers=$true;hostTopmost=$hostBand}
+  }
+  $after=$previous
+  if($after-eq [IntPtr]::Zero -or (!$hostBand -and [ClaudeWidgetZOrderNative]::Topmost($after))){$after=[IntPtr]::Zero}
+  if(![ClaudeWidgetZOrderNative]::SetWindowPos($Widget,$after,0,0,0,0,0x13)){
+    return [pscustomobject]@{ok=$false;changed=$changed;reason='placement-failed'}
+  }
+  $aboveHost=[ClaudeWidgetZOrderNative]::PreviousVisible($HostWindowHandle)
+  $adjacent=$aboveHost-eq $Widget -or ($Companion-ne [IntPtr]::Zero -and $aboveHost-eq $Companion -and [ClaudeWidgetZOrderNative]::PreviousVisible($Companion)-eq $Widget)
+  [pscustomobject]@{ok=$adjacent;changed=$true;adjacent=$adjacent;hostTopmost=$hostBand}
+}

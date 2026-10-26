@@ -1,0 +1,19 @@
+﻿时间：2026-10-26 21:05:04 +08:00
+账户：JOHNNY\Johnny  SID：S-1-5-21-887274008-4258695306-1415951361-1001  USERDOMAIN=JOHNNY  USERNAME=Johnny
+系统：Microsoft Windows NT 10.0.26100.0  PowerShell 5.1.26100.9711  .NET 4.0.30319.42000
+== Claude 娘额度挂件 安装 ==
+程序位置：E:\Claude Niang\claude-niang
+数据位置：C:\Users\johnn\AppData\Local\ClaudeNiang
+Node.js：v24.18.0  C:\Program Files\nodejs\node.exe
+WebView2：155.0.4283.62
+Claude 桌面端：已找到
+Claude 路径：C:\Program Files\WindowsApps\Claude_3.6556.2.0_x64__pzs8sxrjxfjjc; C:\Program Files\WindowsApps\Claude_3.6556.2.0_x64__pzs8sxrjxfjjc\app\Claude.exe
+启动文件夹快捷方式：C:\Users\johnn\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\Claude Niang.lnk
+计划任务尝试：ScheduledTask 对象（SID）：参数错误。 (17,8):UserId:
+已登记开机自动启动：Claude Niang - S-1-5-21-887274008-4258695306-1415951361-1001
+计划任务方式：xml
+
+安装完成！打开 Claude 桌面端主窗口，右下角就会出现 Claude 娘。
+· 点角色看额度，点气泡翻页/看语录；右键角色打开设置。
+· 换成你自己的形象：右键角色 → 更换形象 → 添加形象。
+· 可选：双击「E:\Claude Niang\Claude桌面扩展\claude-niang-usage.mcpb」装到 Claude 桌面端，就能直接问 Claude「我还剩多少额度」。
