@@ -1,0 +1,26 @@
+name: Tests and release package
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Node tests
+        working-directory: claude-niang
+        run: npm test
+      - name: Windows integration tests
+        working-directory: claude-niang
+        shell: powershell
+        run: npm run test:windows
+      - name: Build clean release
+        shell: powershell
+        run: .\build-release.ps1
