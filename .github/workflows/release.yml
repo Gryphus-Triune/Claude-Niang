@@ -70,5 +70,7 @@ jobs:
             if($LASTEXITCODE -ne 0){throw 'Could not push the release tag; it may already exist'}
           }
           $assets=@(Get-ChildItem dist -File | ForEach-Object { $_.FullName })
-          gh release create $env:RELEASE_TAG @assets --title "Claude 娘 $env:RELEASE_TAG · Windows" --notes-file release-notes.md --verify-tag --latest
+          # Windows PowerShell may decode workflow scripts using a legacy code page.
+          $title='Claude '+[char]0x5A18+' '+$env:RELEASE_TAG+' '+[char]0x00B7+' Windows'
+          gh release create $env:RELEASE_TAG @assets --title $title --notes-file release-notes.md --verify-tag --latest
           if($LASTEXITCODE -ne 0){throw 'Could not publish the release'}
