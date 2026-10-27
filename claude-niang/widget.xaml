@@ -27,7 +27,7 @@
   <Canvas x:Name="AnimationStage" Width="378" Height="378">
   <Canvas x:Name="Root" Canvas.Left="14" Canvas.Top="14" Width="350" Height="350" RenderTransformOrigin="0.5,1">
     <Canvas.RenderTransform><TransformGroup><ScaleTransform x:Name="PressScale"/><ScaleTransform x:Name="FacingScale"/></TransformGroup></Canvas.RenderTransform>
-    <Canvas x:Name="Bubble" Width="350" Height="239" Cursor="Hand" RenderTransformOrigin="0.4425,0.36">
+    <Canvas x:Name="Bubble" AutomationProperties.Name="额度与语录气泡" Width="350" Height="239" Cursor="Hand" RenderTransformOrigin="0.4425,0.36">
       <Canvas.RenderTransform><ScaleTransform ScaleX="1" ScaleY="1"/></Canvas.RenderTransform>
       <Path x:Name="BubbleShape" Fill="#FFFFFF" Stroke="#A9603F" StrokeThickness="4"
             StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
@@ -38,7 +38,7 @@
         <Grid x:Name="HeaderRow" Height="16">
           <Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/><ColumnDefinition Width="24"/></Grid.ColumnDefinitions>
           <TextBlock x:Name="Header" Grid.Column="1" Text="剩余额度" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="136" TextAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" FontSize="12" LineHeight="16" LineStackingStrategy="BlockLineHeight" FontWeight="SemiBold" Foreground="#8A6352" IsHitTestVisible="False" ToolTip="重置时间按当前机器的本地时间显示"/>
-          <Button x:Name="Refresh" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Width="20" Height="16" Content="↻" FontSize="12" ToolTip="立即刷新额度"/>
+          <Button x:Name="Refresh" AutomationProperties.Name="刷新额度" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Width="20" Height="16" Content="↻" FontSize="12" ToolTip="立即刷新额度"/>
         </Grid>
         <StackPanel x:Name="ShortRow" Margin="0,1,0,0" IsHitTestVisible="False">
         <Grid Height="25">
@@ -74,9 +74,9 @@
     <Ellipse x:Name="TailNear" Canvas.Left="142" Canvas.Top="214" Width="17" Height="12" Fill="#FFFFFF" Stroke="#A9603F" StrokeThickness="4" RenderTransformOrigin="0.5,0.5">
       <Ellipse.RenderTransform><ScaleTransform/></Ellipse.RenderTransform>
     </Ellipse>
-    <Image x:Name="Girl" Canvas.Left="142" Canvas.Top="142" Width="208" Height="208" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" Cursor="Hand"
+    <Image x:Name="Girl" AutomationProperties.Name="Claude 娘：点击查看额度" Canvas.Left="142" Canvas.Top="142" Width="208" Height="208" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" Cursor="Hand"
            ToolTip="点角色看额度；点气泡看语录，再点收起；拖动调整位置；右键设置"/>
-    <Button x:Name="MenuButton" Canvas.Left="320" Canvas.Top="162" Width="24" Height="24"
+    <Button x:Name="MenuButton" AutomationProperties.Name="挂件设置" Canvas.Left="320" Canvas.Top="162" Width="24" Height="24"
             FontSize="15" Opacity="0" IsHitTestVisible="False" Background="#F5E8E0" ToolTip="挂件设置">
       <Viewbox Width="14" Height="14" Stretch="Uniform">
         <Canvas Width="16" Height="16" UseLayoutRounding="False" SnapsToDevicePixels="False">

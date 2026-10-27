@@ -11,7 +11,7 @@ function Save-InstallLog {
 }
 $exitCode=0
 try{
-  Note ('时间：'+[DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss zzz'))
+  Note ('时间：'+[DateTime]::Now.ToString('yyyy-MM-dd HH:mm:ss zzz',[Globalization.CultureInfo]::InvariantCulture))
   try{
     $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
     Note ('账户：'+$identity.Name+'  SID：'+$identity.User.Value+'  USERDOMAIN='+$env:USERDOMAIN+'  USERNAME='+$env:USERNAME)
@@ -47,16 +47,12 @@ try{
   Stop-WidgetSupervisorTask -AppDir $appDir -Configuration ([pscustomobject]$config)
   Stop-WidgetGui -AppDir $appDir -DataDir $config.dataDir
   Write-WidgetSupervisorJson (Join-Path $appDir 'installation.json') $config
-  $link=(New-Object -ComObject WScript.Shell).CreateShortcut($config.startupShortcut)
-  # Startup is an independent fallback if the scheduled task cannot run.
-  $link.TargetPath=Get-WidgetPowerShellPath
-  $link.Arguments=Get-WidgetSupervisorArguments $appDir
-  $link.WorkingDirectory=Join-Path $env:WINDIR 'System32'
-  $link.WindowStyle=7
-  $link.Description='Claude娘：Claude 桌面端额度挂件'
-  $link.Save()
+  Set-WidgetStartupShortcut $config.startupShortcut $appDir
   Note ('启动文件夹快捷方式：'+$config.startupShortcut)
   $task=Register-WidgetSupervisorTask -AppDir $appDir
+  $launch=Resolve-WidgetSupervisorLaunch $appDir
+  Note ('启动方式：'+$launch.Kind+'  '+$launch.Execute)
+  if($launch.Kind-eq 'headless'){Say '系统不允许运行本地编译的启动程序，已改用 Windows 自带的 conhost 隐藏启动（不影响使用）。' 'DarkYellow';Note ('原因：'+$launch.Reason)}
   foreach($line in @($task.TaskErrors)){Note ('计划任务尝试：'+$line)}
   if($task.TaskRegistered){
     Say ('已登记开机自动启动：'+$task.TaskName) 'Green'
