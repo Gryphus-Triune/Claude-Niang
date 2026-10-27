@@ -7,7 +7,7 @@ import {EventEmitter} from 'node:events';
 import {normalizeClaudeBundle,normalizeUsage,readUsage,newOrganizationCache} from '../runtime/claude-usage.mjs';
 import {mergeUsageSnapshot,createFailurePause} from '../runtime/refresh-queue.mjs';
 import {advanceLedger,updateDailyLedger,localDay} from '../runtime/daily.mjs';
-import {describe} from '../runtime/mcp.mjs';
+import {describe,negotiateVersion} from '../runtime/mcp.mjs';
 import * as fx from './fixtures/bundles.mjs';
 
 test('unknown and broken HTTP-200 shapes retain previous data as an explicitly failed read',()=>{
@@ -83,4 +83,9 @@ test('the third failed read in a row starts a 30-second pause; a success, the pa
   now=29999;assert.equal(pause.remaining(),1);now=30000;assert.equal(pause.remaining(),0);
   pause.record(false);pause.record(false);assert.equal(pause.remaining(),0,'two new failures after a pause are not enough');
   assert.equal(pause.record(false),true);pause.reset();assert.equal(pause.remaining(),0);assert.equal(pause.failures,0);
+});
+test('MCP answers a supported protocol version and falls back to its newest one',()=>{
+  assert.equal(negotiateVersion('2025-03-26'),'2025-03-26');
+  assert.equal(negotiateVersion('2099-01-01'),'2025-11-25');
+  assert.equal(negotiateVersion(undefined),'2025-11-25');
 });

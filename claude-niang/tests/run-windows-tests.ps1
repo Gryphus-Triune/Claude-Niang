@@ -18,8 +18,9 @@ function Import-Function([string]$File,[string]$Name){
   return [ScriptBlock]::Create($node.Extent.Text)
 }
 function Read-WidgetJsonFile([string]$File){if(Test-Path -LiteralPath $File){return Get-Content -LiteralPath $File -Raw -Encoding UTF8|ConvertFrom-Json};return $null}
+. (Join-Path $appDir 'runtime\log.ps1')
 . (Join-Path $appDir 'runtime\claude-extras.ps1')
-. (Import-Function (Join-Path $appDir 'widget.ps1') 'Write-WidgetJson')
+foreach($name in @('Write-WidgetFileAtomic','Write-WidgetJson')){. (Import-Function (Join-Path $appDir 'runtime\common.ps1') $name)}
 $script:dataDir=$scratch;$script:appDir=$appDir;$script:settingsFile=Join-Path $scratch 'settings.json'
 $script:refreshCalls=0;$script:captured=@();$script:collapsed=$true
 $script:window=[pscustomobject]@{IsVisible=$true};$script:context=[pscustomobject]@{IsOpen=$false}
@@ -99,9 +100,268 @@ try{
     Assert ($script:status.selectedOrg-eq $script:preferredOrg) 'Selection changed back'
   }
   Case 'Settings save removes retired refresh and time-of-day settings' {
-    . (Import-Function (Join-Path $appDir 'widget.ps1') 'Save-Settings')
+    . (Import-Function (Join-Path $appDir 'runtime\widget-settings.ps1') 'Save-Settings')
     Save-Settings;$saved=Read-WidgetJsonFile $script:settingsFile
     Assert (!$saved.PSObject.Properties['pollMinutes']) 'Retired refresh setting persisted';Assert (!$saved.PSObject.Properties['peakTag']) 'Retired marker persisted'
+  }
+  Case 'Settings fields are read one by one; a bad value keeps its default' {
+    foreach($name in @('Get-WidgetSettingNumber','Get-WidgetSettingFlag','Import-WidgetSettings')){. (Import-Function (Join-Path $appDir 'runtime\widget-settings.ps1') $name)}
+    $script:offsetRight=0.0;$script:offsetBottom=0.0;$script:offsetLeft=$null;$script:anchor='right';$script:side='right';$script:scale=1.0;$script:bubbleScale=1.0
+    $script:soundOn=$true;$script:soundVolume=0.9;$script:followHost=$true;$script:characterId='claude-niang'
+    $saved='{"layoutVersion":2,"right":"NaN","bottom":12.5,"scale":9,"bubbleScale":1.5,"left":-3,"anchor":"free","side":"up","soundOn":"yes","soundVolume":7,"followHost":false,"colorMode":"rainbow","colorChance":31,"characterId":"custom-x"}'|ConvertFrom-Json
+    Import-WidgetSettings $saved
+    Assert ($script:offsetRight-eq 0 -and $script:offsetBottom-eq 12.5 -and $script:offsetLeft-eq -3) 'Offsets not read one by one'
+    Assert ($script:scale-eq 1 -and $script:bubbleScale-eq 1.5) 'Out-of-range size accepted'
+    Assert ($script:anchor-eq 'free' -and $script:side-eq 'right') 'Anchor or side wrong'
+    Assert ($script:soundOn-eq $false -and $script:soundVolume-eq 1) 'Sound settings wrong'
+    Assert ($script:followHost-eq $false -and $null-eq $script:colorMode -and $script:characterId-eq 'custom-x') 'Other fields wrong'
+    $script:offsetBottom=5;$script:anchor='right';Import-WidgetSettings ('{"right":30}'|ConvertFrom-Json)
+    Assert ($script:offsetRight-eq 30 -and $script:offsetBottom-eq 0 -and $script:anchor-eq 'free') 'Old layout not migrated'
+  }
+  Case 'JSON replace waits out a short-lived reader and gives up on a lasting one' {
+    if(!('CnTestCloser' -as [type])){Add-Type -TypeDefinition 'using System;using System.Threading;public static class CnTestCloser{public static void Later(IDisposable d,int ms){ThreadPool.QueueUserWorkItem(delegate{Thread.Sleep(ms);d.Dispose();});}}'}
+    $target=Join-Path $scratch 'busy.json';Write-WidgetJson $target @{n=1}
+    $reader=[IO.File]::Open($target,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite);[CnTestCloser]::Later($reader,25)
+    Write-WidgetJson $target @{n=2}
+    Assert ((Read-WidgetJsonFile $target).n-eq 2) 'A short-lived reader blocked the write'
+    $reader=[IO.File]::Open($target,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::ReadWrite);$failed=$false
+    try{Write-WidgetJson $target @{n=3}}catch{$failed=$true}finally{$reader.Dispose()}
+    Assert $failed 'A lasting reader was not reported';Assert ((Read-WidgetJsonFile $target).n-eq 2) 'A blocked write changed the file'
+    Assert (!@(Get-ChildItem -LiteralPath $scratch -Filter 'busy.json*.tmp').Count) 'Temporary file left behind'
+  }
+  Case 'Every state file is replaced through the one retrying writer' {
+    $direct=@(Get-ChildItem -LiteralPath $appDir -Recurse -Filter '*.ps1'|Where-Object{$_.Name-ne 'common.ps1' -and $_.FullName-notlike '*\tests\*'}|Select-String -Pattern '::Replace\(' -SimpleMatch:$false)
+    Assert (!$direct.Count) ('Direct File.Replace outside Write-WidgetFileAtomic: '+(($direct|ForEach-Object{$_.Filename+':'+$_.LineNumber})-join ', '))
+  }
+  Case 'Supervisor launcher runs PowerShell without a visible window and returns its exit code' {
+    if(!('CnLaunchWindows' -as [type])){Add-Type -TypeDefinition @'
+using System;using System.Text;using System.Collections.Generic;using System.Runtime.InteropServices;
+public static class CnLaunchWindows{
+  delegate bool P(IntPtr h,IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(P p,IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll",CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h,StringBuilder s,int n);
+  public static bool VisibleTitled(string title){bool found=false;EnumWindows((h,l)=>{var t=new StringBuilder(512);GetWindowText(h,t,512);if(IsWindowVisible(h)&&t.ToString().Contains(title))found=true;return true;},IntPtr.Zero);return found;}
+}
+'@}
+    . (Join-Path $appDir 'runtime\supervisor-task.ps1')
+    # A stand-in app folder: the real launcher source, and stand-in scripts that
+    # title their console, stay alive briefly and exit with a known code.
+    $app=Join-Path $scratch "launcher app O'Neil";$runtime=Join-Path $app 'runtime';$null=[IO.Directory]::CreateDirectory($runtime)
+    Copy-Item -LiteralPath (Join-Path $appDir 'runtime\launcher.cs') -Destination $runtime
+    $marker='cn-launch-'+[Guid]::NewGuid().ToString('N');$done=Join-Path $runtime 'done.txt';$opened=Join-Path $runtime 'opened.txt'
+    [IO.File]::WriteAllText((Join-Path $runtime 'supervisor.ps1'),("`$host.UI.RawUI.WindowTitle='"+$marker+"';Start-Sleep -Milliseconds 2500;[IO.File]::WriteAllText('"+$done.Replace("'","''")+"','ok');exit 7"),[Text.UTF8Encoding]::new($true))
+    [IO.File]::WriteAllText((Join-Path $runtime 'start-supervisor.ps1'),("Start-Sleep -Milliseconds 1500;[IO.File]::WriteAllText('"+$opened.Replace("'","''")+"','ok')"),[Text.UTF8Encoding]::new($true))
+    $launcher=Initialize-WidgetLauncher $app
+    Assert ((Initialize-WidgetLauncher $app)-eq $launcher -and @(Get-ChildItem -LiteralPath $runtime|Where-Object{$_.Name-like 'claude-niang-launcher.exe.*'}).Count-eq 0) 'Unchanged launcher was rebuilt'
+    $process=Start-Process -FilePath $launcher -ArgumentList 'supervisor' -PassThru
+    $visible=$false;$deadline=[DateTime]::UtcNow.AddSeconds(20)
+    while(!$process.HasExited -and [DateTime]::UtcNow-lt $deadline){if([CnLaunchWindows]::VisibleTitled($marker)){$visible=$true};Start-Sleep -Milliseconds 100}
+    $finished=$process.WaitForExit(1000);$code=if($finished){$process.ExitCode}else{-1};$process.Dispose()
+    Assert (Test-Path -LiteralPath $done) 'Launcher did not run the supervisor'
+    Assert (!$visible) 'Supervisor console was visible'
+    Assert ($code-eq 7) ('Launcher exit code '+$code)
+    $open=Start-Process -FilePath $launcher -ArgumentList 'open' -PassThru
+    Assert ($open.WaitForExit(1000)) 'open mode waited for start-supervisor';$open.Dispose()
+    $deadline=[DateTime]::UtcNow.AddSeconds(15);while(!(Test-Path -LiteralPath $opened) -and [DateTime]::UtcNow-lt $deadline){Start-Sleep -Milliseconds 100}
+    Assert (Test-Path -LiteralPath $opened) 'open mode did not run start-supervisor'
+    # A changed source is rebuilt even while the old launcher is in use.
+    $busy=Start-Process -FilePath $launcher -ArgumentList 'supervisor' -PassThru
+    Add-Content -LiteralPath (Join-Path $runtime 'launcher.cs') -Value '// changed'
+    $null=Initialize-WidgetLauncher $app
+    $hash=[Diagnostics.FileVersionInfo]::GetVersionInfo($launcher).ProductVersion
+    $null=$busy.WaitForExit(15000);$busy.Dispose()
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try{$expected=([BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes((Join-Path $runtime 'launcher.cs'))))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
+    Assert ($hash-eq $expected) 'Changed launcher source was not rebuilt'
+  }
+  Case 'Supervisor registrations from this folder are recognized in both forms; others are refused' {
+    . (Join-Path $appDir 'runtime\supervisor-task.ps1')
+    $app=Join-Path $scratch 'App Folder';$other=Join-Path $scratch 'Other Folder'
+    $current=@{Execute=($app+'\runtime\claude-niang-launcher.exe');Arguments='supervisor'}
+    $legacy=@{Execute=(Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe');Arguments=('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+$app+'\runtime\supervisor.ps1"')}
+    $vbs=@{Execute=(Join-Path $env:WINDIR 'System32\wscript.exe');Arguments=('//B //NoLogo "'+$app+'\runtime\supervisor.vbs"')}
+    $headless=@{Execute=(Join-Path $env:WINDIR 'System32\conhost.exe');Arguments=(Get-WidgetHeadlessArguments $app)}
+    Assert ((Get-WidgetSupervisorCommandKind $current.Execute $current.Arguments $app)-eq 'launcher') 'Launcher form not recognized'
+    Assert ((Get-WidgetSupervisorCommandKind $headless.Execute $headless.Arguments $app)-eq 'headless') 'conhost form not recognized'
+    Assert ((Get-WidgetSupervisorCommandKind $legacy.Execute $legacy.Arguments $app)-eq 'legacy') 'PowerShell form not recognized'
+    Assert ((Get-WidgetSupervisorCommandKind $vbs.Execute $vbs.Arguments $app)-eq 'legacy') 'VBScript form not recognized'
+    Assert ($null-eq (Get-WidgetSupervisorCommandKind $current.Execute $current.Arguments $other)) 'Another folder accepted'
+    Assert (Test-WidgetStartupShortcutIdentity ([pscustomobject]@{TargetPath=$legacy.Execute;Arguments=$legacy.Arguments}) $app) 'Earlier shortcut treated as foreign'
+    $info=[pscustomobject]@{AppDir=$app;TaskName='T';TaskPath='\';Sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
+    $launch=[pscustomobject]@{AppDir=$app;Kind='launcher'};$blocked=[pscustomobject]@{AppDir=$app;Kind='headless'}
+    $task={param($action)[pscustomobject]@{TaskName='T';TaskPath='\';Principal=[pscustomobject]@{UserId=$info.Sid;LogonType='Interactive';RunLevel='Limited'};Actions=@([pscustomobject]$action)}}
+    Assert (!(Test-WidgetSupervisorTaskCurrent (& $task $legacy) $launch)) 'Earlier task not marked for upgrade'
+    Assert (Test-WidgetSupervisorTaskCurrent (& $task $current) $launch) 'Current task marked for upgrade'
+    Assert (!(Test-WidgetSupervisorTaskCurrent (& $task $current) $blocked)) 'Launcher task kept although the launcher is blocked'
+    Assert (Test-WidgetSupervisorTaskCurrent (& $task $headless) $blocked) 'conhost task marked for upgrade'
+    Assert-WidgetSupervisorTaskIdentity (& $task $legacy) $info
+    Assert-WidgetSupervisorTaskIdentity (& $task $headless) $info
+    $refused=$false;try{Assert-WidgetSupervisorTaskIdentity (& $task @{Execute=($other+'\runtime\claude-niang-launcher.exe');Arguments='supervisor'}) $info}catch{$refused=$true}
+    Assert $refused 'Another folder task accepted'
+    $xml=New-WidgetSupervisorTaskXml -Info (Get-WidgetSupervisorInfo $appDir ([pscustomobject]@{appDir=$appDir;dataDir=$scratch})) -Account $info.Sid
+    Assert ($xml-like '*claude-niang-launcher.exe</Command>*' -and $xml-like '*<Arguments>supervisor</Arguments>*') 'Task XML does not use the launcher'
+  }
+  Case 'A blocked launcher falls back to conhost, which also keeps the console hidden' {
+    . (Join-Path $appDir 'runtime\supervisor-task.ps1')
+    $app=Join-Path $scratch "launcher app O'Neil";$runtime=Join-Path $app 'runtime'
+    $script:widgetSupervisorLaunch=$null
+    Assert ((Resolve-WidgetSupervisorLaunch $app).Kind-eq 'launcher') 'Working launcher not chosen'
+    # Policy refusing the program looks like a failed start.
+    function Start-Process {throw 'This program is blocked by group policy.'}
+    $script:widgetSupervisorLaunch=$null
+    $launch=Resolve-WidgetSupervisorLaunch $app
+    Remove-Item Function:\Start-Process;$script:widgetSupervisorLaunch=$null
+    Assert ($launch.Kind-eq 'headless' -and $launch.Reason-like '*blocked*') ('Blocked launcher not replaced: '+$launch.Kind)
+    Assert ((Get-WidgetSupervisorCommandKind $launch.Execute $launch.Arguments $app)-eq 'headless') 'Fallback command not recognized as ours'
+    # Run the fallback command itself with the stand-in supervisor from the launcher case.
+    $done=Join-Path $runtime 'done.txt';Remove-Item -LiteralPath $done -ErrorAction SilentlyContinue
+    $marker=[IO.File]::ReadAllText((Join-Path $runtime 'supervisor.ps1'))-replace "^.*WindowTitle='([^']+)'.*$",'$1'
+    $process=Start-Process -FilePath $launch.Execute -ArgumentList $launch.Arguments -PassThru
+    $visible=$false;$deadline=[DateTime]::UtcNow.AddSeconds(20)
+    while(!$process.HasExited -and [DateTime]::UtcNow-lt $deadline){if([CnLaunchWindows]::VisibleTitled($marker)){$visible=$true};Start-Sleep -Milliseconds 100}
+    $null=$process.WaitForExit(2000);$process.Dispose()
+    Assert (Test-Path -LiteralPath $done) 'conhost fallback did not run the supervisor'
+    Assert (!$visible) 'conhost fallback showed the console'
+  }
+  Case 'Worker health follows its heartbeat counter, not the clock, and needs two misses' {
+    foreach($name in @('Get-WidgetWorkerHealth','Ensure-QuotaWorker')){. (Import-Function (Join-Path $appDir 'widget.ps1') $name)}
+    $saved=@{config=$script:config;dataDir=$script:dataDir}
+    $data=Join-Path $scratch 'health';$null=[IO.Directory]::CreateDirectory($data);$script:dataDir=$data
+    $script:config=@{nodePath=(Get-Process -Id $PID).Path}
+    $status=Join-Path $data 'worker-status.json';$lock=Join-Path $data 'worker.lock'
+    $started=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $beat={param($seq,$at)Write-WidgetJson $status @{pid=$PID;token='t1';startedAt=$started;at=$at;seq=$seq}}
+    Write-WidgetJson $lock @{pid=$PID;token='t1';startedAt=$started}
+    $script:kills=0;$script:starts=0
+    function Start-Process {$script:starts++;$p=[pscustomobject]@{HasExited=$false};$p|Add-Member ScriptMethod Kill {$script:kills++;$this.HasExited=$true};$p|Add-Member ScriptMethod WaitForExit {param($ms)$true};$p|Add-Member ScriptMethod Dispose {};return $p}
+    $script:worker=Start-Process;$script:starts=0
+    $script:workerClock=[pscustomobject]@{ElapsedMilliseconds=20000};$script:lastWorkerProbe=$null;$script:lastWorkerStart=0;$script:workerMark=$null;$script:workerMisses=0
+    $probe={param($ms)$script:workerClock.ElapsedMilliseconds=$ms;Ensure-QuotaWorker 0}
+    & $beat 1 $started;& $probe 20000
+    Assert ($script:kills-eq 0 -and $script:workerMisses-eq 0) 'Healthy worker not accepted'
+    & $probe 25000
+    Assert ($script:kills-eq 0 -and $script:workerMisses-eq 1) 'One probe without progress restarted the worker'
+    # The clock jumped an hour: the heartbeat still advanced, so the worker is alive.
+    & $beat 2 ($started+3600000);& $probe 30000
+    Assert ($script:kills-eq 0 -and $script:workerMisses-eq 0) 'A clock change made a working worker look stuck'
+    $held=[IO.File]::Open($lock,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
+    try{& $beat 3 $started;& $probe 35000}finally{$held.Dispose()}
+    Assert ($script:kills-eq 0 -and $script:workerMisses-eq 1) 'One unreadable status restarted the worker'
+    & $probe 40000
+    Assert ($script:kills-eq 0 -and $script:workerMisses-eq 0) 'Readable progress after a failed read not accepted'
+    & $probe 45000;& $probe 50000
+    Assert ($script:kills-eq 1 -and $script:starts-eq 1) ('Stuck worker not replaced after two misses: kills '+$script:kills+', starts '+$script:starts)
+    Remove-Item Function:\Start-Process
+    $log=[IO.File]::ReadAllText((Join-Path $data 'logs\claude-niang.log'))
+    Assert ($log-like '*心跳没有前进*') 'Restart reason not logged'
+    $script:config=$saved.config;$script:dataDir=$saved.dataDir;$script:worker=$null
+  }
+  Case 'Searched quote layouts are kept on disk and checked before reuse' {
+    Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
+    . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\quote-layout.ps1'),[Text.Encoding]::UTF8)))
+    $window=[Windows.Markup.XamlReader]::Parse([IO.File]::ReadAllText((Join-Path $appDir 'widget.xaml'),[Text.Encoding]::UTF8))
+    $box=$window.FindName('QuoteText');$data=Join-Path $scratch 'layouts';$store=Join-Path $data 'cache\quote-layouts.json'
+    Initialize-WidgetQuoteLayouts $appDir $data
+    Assert ($script:quoteLayoutHints.Count-ge 1) 'Reviewed built-in layouts not loaded'
+    $text='这是一句自己写的语录，用来检查排版缓存。'
+    $first=Get-WidgetQuoteLayout $text $box
+    Assert (Test-Path -LiteralPath $store) 'Searched layout not stored'
+    Initialize-WidgetQuoteLayouts $appDir $data
+    $sw=[Diagnostics.Stopwatch]::StartNew();$again=Get-WidgetQuoteLayout $text $box;$sw.Stop()
+    Assert ($again.fontSize-eq $first.fontSize -and $again.width-eq $first.width) 'Stored layout changed the result'
+    # A stored layout that no longer fits is searched again and replaced.
+    $broken=[IO.File]::ReadAllText($store)-replace '"fontSize":\d+','"fontSize":32'-replace '"width":\d+','"width":140'
+    [IO.File]::WriteAllText($store,$broken);Initialize-WidgetQuoteLayouts $appDir $data
+    $fixed=Get-WidgetQuoteLayout $text $box
+    Assert ($fixed.fontSize-eq $first.fontSize -and $fixed.width-eq $first.width) 'Unfit stored layout was used'
+    Assert ([IO.File]::ReadAllText($store)-like ('*"fontSize":'+$first.fontSize+'*')) 'Unfit stored layout not replaced'
+    foreach($row in @(([IO.File]::ReadAllText((Join-Path $appDir 'assets\quote-layouts.json'),[Text.Encoding]::UTF8)|ConvertFrom-Json).quotes)){
+      $lines=if($row.display.Contains("`n")){($row.display-split "`n").Count}else{0}
+      $null=Get-WidgetQuoteLayout $row.display $box $lines
+    }
+    Assert (@(([IO.File]::ReadAllText($store)|ConvertFrom-Json).entries).Count-eq 1) 'Built-in quotes with a reviewed layout were stored'
+  }
+  Case 'The widget restarts a missing supervisor, but not when it was stopped on purpose' {
+    . (Import-Function (Join-Path $appDir 'widget.ps1') 'Ensure-WidgetSupervisor')
+    $saved=@{dataDir=$script:dataDir;appDir=$script:appDir}
+    $data=Join-Path $scratch 'watchdog';$null=[IO.Directory]::CreateDirectory($data);$script:dataDir=$data
+    $script:userSid='test-'+[Guid]::NewGuid().ToString('N');$script:starts=0
+    function Start-Process {$script:starts++}
+    $script:workerClock=[pscustomobject]@{ElapsedMilliseconds=0};$script:lastSupervisorProbe=0;$script:lastSupervisorStart=$null
+    $probe={param($ms)$script:workerClock.ElapsedMilliseconds=$ms;Ensure-WidgetSupervisor}
+    & $probe 10000
+    Assert ($script:starts-eq 0) 'Checked before 30 seconds'
+    $running=[Threading.Mutex]::new($false,'Local\ClaudeNiangSupervisor-'+$script:userSid)
+    try{& $probe 30000}finally{$running.Dispose()}
+    Assert ($script:starts-eq 0) 'Running supervisor restarted'
+    [IO.File]::WriteAllText((Join-Path $data 'supervisor-disabled.flag'),'disabled');& $probe 60000
+    Assert ($script:starts-eq 0) 'Disabled supervisor restarted'
+    Remove-Item -LiteralPath (Join-Path $data 'supervisor-disabled.flag');& $probe 90000
+    Assert ($script:starts-eq 1) 'Missing supervisor not restarted'
+    & $probe 120000
+    Assert ($script:starts-eq 1) 'Restarted again within five minutes'
+    & $probe 400000
+    Assert ($script:starts-eq 2) 'Not restarted after five minutes'
+    Remove-Item Function:\Start-Process
+    Assert ([IO.File]::ReadAllText((Join-Path $data 'logs\claude-niang.log'))-like '*监督进程不在运行*') 'Restart not logged'
+    $script:dataDir=$saved.dataDir;$script:appDir=$saved.appDir
+  }
+  Case 'The widget and the worker agree on the pipe name' {
+    . (Import-Function (Join-Path $appDir 'widget.ps1') 'Get-WidgetWorkerPipeName')
+    $saved=$script:dataDir;$script:dataDir=Join-Path $scratch "管道 O'Neil";$script:workerPipeName=$null
+    $expected=& (Get-Command node.exe).Source --input-type=module -e ("import {workerEndpoint} from '"+([Uri](Join-Path $appDir 'runtime\shared.mjs')).AbsoluteUri+"';console.log(workerEndpoint(process.argv[1]))") $script:dataDir
+    Assert ('\\.\pipe\'+(Get-WidgetWorkerPipeName)-eq $expected) ('Pipe names differ: '+$expected)
+    $script:dataDir=$saved;$script:workerPipeName=$null
+  }
+  Case 'Compiled C# helpers are cached and reused' {
+    # Both runs use child processes so this one never locks the cached DLL.
+    $cache=Join-Path $scratch 'types';$name='CnCacheProbe'+[Guid]::NewGuid().ToString('N')
+    $source='public static class '+$name+' { public static int Value(){ return 42; } }'
+    $quote={param($text)"'"+([string]$text).Replace("'","''")+"'"}
+    $load='. '+(& $quote (Join-Path $appDir 'runtime\common.ps1'))+';Add-WidgetType -TypeName '+$name+' -TypeDefinition '+(& $quote $source)+' -CacheDirectory '+(& $quote $cache)+';['+$name+']::Value()'
+    $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $first=@(& $powerShell -NoProfile -Command $load)
+    Assert ($first[0]-eq '42') ('Type not usable: '+($first-join ','))
+    $files=@(Get-ChildItem -LiteralPath $cache -Filter ($name+'-*.dll'))
+    Assert ($files.Count-eq 1) 'Compiled helper not cached'
+    $before=$files[0].LastWriteTimeUtc
+    $again=@(& $powerShell -NoProfile -Command $load)
+    Assert ($again[0]-eq '42') ('Cached helper not usable: '+($again-join ','))
+    Assert ((Get-Item -LiteralPath $files[0].FullName).LastWriteTimeUtc-eq $before) 'Cached helper compiled again'
+  }
+  Case 'The Startup shortcut uses the conhost fallback, independent of the launcher' {
+    . (Join-Path $appDir 'runtime\supervisor-task.ps1')
+    $lnk=Join-Path $scratch 'startup-test.lnk';$app=Join-Path $scratch 'App Folder'
+    Set-WidgetStartupShortcut $lnk $app
+    $link=(New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+    Assert ((Get-WidgetSupervisorCommandKind $link.TargetPath $link.Arguments $app)-eq 'headless') ('Shortcut form: '+$link.TargetPath+' '+$link.Arguments)
+  }
+  Case 'Only the five most recent removed pictures are kept' {
+    . ([ScriptBlock]::Create([IO.File]::ReadAllText((Join-Path $appDir 'runtime\characters.ps1'),[Text.Encoding]::UTF8)))
+    foreach($name in @('Write-WidgetFileAtomic')){. (Import-Function (Join-Path $appDir 'runtime\common.ps1') $name)}
+    $data=Join-Path $scratch 'removed';$pictures=Join-Path $data 'characters';$bin=Join-Path $pictures 'removed'
+    $null=[IO.Directory]::CreateDirectory($bin)
+    $ids=@(1..7|ForEach-Object{'custom-'+[Guid]::NewGuid().ToString('N')})
+    $removed=@(for($i=0;$i-lt 5;$i++){[IO.File]::WriteAllBytes((Join-Path $bin ($ids[$i]+'.png')),[byte[]](1,2,3));[pscustomobject]@{id=$ids[$i];name=('old '+$i);file=($ids[$i]+'.png');removedAt=('2026-01-0'+($i+1)+'T00:00:00Z')}})
+    [IO.File]::WriteAllBytes((Join-Path $pictures ($ids[6]+'.png')),[byte[]](1,2,3))
+    Write-WidgetCharacterCatalog (Join-Path $data 'characters.json') ([pscustomobject]@{version=1;characters=@([pscustomobject]@{id=$ids[6];name='new';file=($ids[6]+'.png')});removed=$removed})
+    $null=Remove-WidgetCharacter $data $ids[6]
+    $catalog=Read-WidgetCharacterCatalog (Join-Path $data 'characters.json')
+    Assert (@($catalog.removed).Count-eq 5) ('Removed list size '+@($catalog.removed).Count)
+    Assert (!(Test-Path -LiteralPath (Join-Path $bin ($ids[0]+'.png')))) 'Oldest removed picture kept'
+    Assert ((Test-Path -LiteralPath (Join-Path $bin ($ids[6]+'.png'))) -and (Test-Path -LiteralPath (Join-Path $bin ($ids[1]+'.png')))) 'Recent removed pictures deleted'
+  }
+  Case 'Diagnostic log merges repeats and rolls over at 1 MB' {
+    $logDir=Join-Path $scratch 'log-test';$file=Join-Path $logDir 'logs\claude-niang.log'
+    Write-WidgetLog $logDir 'widget' '第一条';Write-WidgetLog $logDir 'widget' '第一条'
+    $first=@(Get-Content -LiteralPath $file -Encoding UTF8)
+    Assert ($first.Count-eq 1) 'Repeat not merged'
+    Assert ($first[0]-match '^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} [+-]\d\d:\d\d \[widget \d+\] 第一条$') ('Line format: '+$first[0])
+    $stream=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::Write);try{$stream.SetLength(1MB)}finally{$stream.Dispose()}
+    Write-WidgetLog $logDir 'widget' '第二条'
+    Assert ((Get-Item -LiteralPath (Join-Path $logDir 'logs\claude-niang.1.log')).Length-ge 1MB) 'Old log not kept'
+    Assert (@(Get-Content -LiteralPath $file -Encoding UTF8)[0]-like '*第二条') 'New log not started'
   }
   $a=('a'*64);$b=('b'*64);$now=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$future=[DateTimeOffset]::UtcNow.AddHours(2).ToUnixTimeSeconds()
   Case 'Switching organizations never produces a false reset' {

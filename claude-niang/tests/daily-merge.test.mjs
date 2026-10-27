@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {advanceLedger,localDay} from '../runtime/daily.mjs';
 import {mergeUsageSnapshot} from '../runtime/refresh-queue.mjs';
-import {formatMoney} from '../runtime/format.mjs';
+import {formatMoney} from '../runtime/shared.mjs';
 
 const at=(day,hour)=>new Date(2026,9,day,hour,0,0).getTime();
 const snap=(used,resetsAt=1761868800,extra={})=>({ok:true,queryOk:true,accountKey:'acct-a',windows:[{kind:'session',used:10},{kind:'weekly',used,resetsAt}],...extra});
@@ -74,4 +74,6 @@ test('money is shown in major units with the currency symbol',()=>{
   assert.equal(formatMoney(12345,'USD'),'$123.45');
   assert.equal(formatMoney(500,'EUR'),'€5.00');
   assert.equal(formatMoney(null,'USD'),'—');
+  // Same grouping as the widget's own money text.
+  assert.equal(formatMoney(123456789,'USD'),'$1,234,567.89');assert.equal(formatMoney(150000,'JPY'),'¥150,000');
 });
