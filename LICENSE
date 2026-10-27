@@ -23,8 +23,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Claude娘 is a modified version of GPT-Niang (https://github.com/T7moris/GPT-Niang)
-for the Claude desktop app. No GPT-Niang character image is included. The quotes
-and the click sounds in this package are covered by this license.
+for the Claude desktop app. No GPT-Niang character image is included. The click sounds and bundled quotes are covered by this license. Seven bundled
+quotes also retain the upstream copyright and MIT notice in
+claude-niang/assets/quotes-LICENSE.txt.
 
 The default character image (claude-niang/assets/claude-niang.png) and the
 extension icon made from it (claude-niang/extension/icon.png) are (c) the

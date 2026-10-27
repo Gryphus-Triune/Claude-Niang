@@ -35,13 +35,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-release.ps1
 
 不要提交机器上的安装记录、日志、账号数据或个人图片；它们也不应进入源码归档。`.gitignore` 只对未跟踪文件生效，已经被 Git 跟踪的文件需要另外从仓库中移除。
 
-更新仓库里的 `Claude桌面扩展/claude-niang-usage.mcpb` 时，使用发布 ZIP 中同名的文件。新增文档资源后，同步检查 `tools/release.mjs` 的白名单，确保解压后的 README 链接与图片仍可用。
+桌面扩展由构建生成，随发布 ZIP 和 Release 提供，不需要把生成的 `.mcpb` 放进仓库。新增文档或许可资源后，同步检查 `tools/release.mjs` 的白名单，确保发布 ZIP 中的 README 链接、图片与许可文件齐全。
+
+发布普通版本时，先更新 `claude-niang/package.json`、README 的当前版本和 CHANGELOG 中对应的章节，再从包含这些更改的提交创建 `vX.Y.Z` 标签。仅整理同一功能版本的源码和发布包时，可使用 `vX.Y.Z-repack.N` 标签，并在 CHANGELOG 中添加对应的 `X.Y.Z-repack.N` 章节。`.github/workflows/release.yml` 会核对版本、运行检查、打包并创建 Release。不要移动已经公开的版本标签；发布前确认标签指向预期的源码提交。
 
 ## 扩展与资源
 
-`claude-niang/runtime/mcp.mjs` 是 MCP 服务的唯一源码。构建将它复制成扩展内的 `server/index.mjs`，把根目录 `LICENSE` 复制进扩展，并从 `package.json` 同步扩展版本。服务源码中的版本常量应与包版本保持一致。
+`claude-niang/runtime/mcp.mjs` 是 MCP 服务源码，和后台共享 `runtime/shared.mjs`。构建会将这两个文件复制进扩展的 `server/`，把根目录 `LICENSE` 复制进扩展，并从 `package.json` 同步扩展版本。扩展运行时读取 manifest 的版本；`shared.mjs` 不应引用扩展中不存在的本地模块。
 
-默认形象、墨镜标定和资源维护见 [自定义资源说明](docs/customization.md)。文档中的界面预览使用示例数据；添加效果展示时，说明它是实机截图、离线渲染还是示意图，并去除真实账号信息。
+默认形象、墨镜标定和资源维护见 [自定义资源说明](docs/customization.md)。内置语录的上游署名和许可见 `claude-niang/assets/quotes-LICENSE.txt`，发布包必须保留该文件。文档中的界面预览使用示例数据；添加效果展示时，说明它是实机截图、离线渲染还是示意图，并去除真实账号信息。
 
 ## 兼容性反馈
 
