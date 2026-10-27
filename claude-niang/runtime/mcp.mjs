@@ -1,63 +1,33 @@
 #!/usr/bin/env node
 // Claude娘额度 · MCP server for Claude Desktop.
-// Self-contained on purpose: the same file runs from the widget folder and
-// from the packaged Claude Desktop extension (.mcpb). It only reads the quota
-// snapshot that the Claude娘 widget keeps on this computer, and can ask the
-// running widget for a fresh read. It never creates chats or calls a model,
-// and it never sees cookies or tokens.
-import fs from 'node:fs';
+// The same file runs from the widget folder and from the packaged Claude
+// Desktop extension (.mcpb), where the release puts shared.mjs next to it. It
+// only reads the quota snapshot that the Claude娘 widget keeps on this
+// computer, and can ask the running widget for a fresh read. It never creates
+// chats or calls a model, and it never sees cookies or tokens.
 import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
 import readline from 'node:readline';
-import {createHash,randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {readJson,requestPipeRefresh,localDay,formatMoney} from './shared.mjs';
 
-const VERSION='1.2.0';
+// The extension keeps manifest.json one folder above server/index.mjs; in the
+// widget folder the version comes from package.json next to runtime/.
+function ownVersion() {
+  for(const name of ['../manifest.json','../package.json']){
+    const version=readJson(fileURLToPath(new URL(name,import.meta.url)))?.version;
+    if(typeof version==='string')return version;
+  }
+  return '0.0.0';
+}
+const VERSION=ownVersion();
 const localData=process.env.LOCALAPPDATA || path.join(os.homedir(),'AppData','Local');
 const DATA_DIR=process.env.CLAUDE_NIANG_DATA_DIR && process.env.CLAUDE_NIANG_DATA_DIR.trim() && !process.env.CLAUDE_NIANG_DATA_DIR.includes('${')
   ? path.resolve(process.env.CLAUDE_NIANG_DATA_DIR.trim())
   : path.join(localData,'ClaudeNiang','state');
 
-function readJson(file) {
-  try{return JSON.parse(fs.readFileSync(file,'utf8').replace(/^﻿/,''));}catch{return null;}
-}
-
-// Must match runtime/worker-state.mjs workerEndpoint().
-function endpoint(dataDir) {
-  const key=createHash('sha256').update(path.resolve(dataDir).toLowerCase()).digest('hex').slice(0,32);
-  return process.platform==='win32'?'\\\\.\\pipe\\claude-niang-usage-'+key:path.join(dataDir,'worker.sock');
-}
-
-function requestFresh(timeoutMs=95000) {
-  return new Promise(resolve=>{
-    const id=randomUUID();let finished=false,buffer='',timer;
-    const socket=net.createConnection(endpoint(DATA_DIR));
-    socket.setEncoding('utf8');
-    const finish=value=>{if(finished)return;finished=true;clearTimeout(timer);socket.destroy();resolve(value);};
-    timer=setTimeout(()=>finish(null),400);
-    socket.on('error',()=>finish(null));socket.on('close',()=>finish(null));
-    socket.on('connect',()=>{
-      clearTimeout(timer);timer=setTimeout(()=>finish(null),timeoutMs);
-      socket.write(JSON.stringify({id,method:'refresh'})+'\n');
-    });
-    socket.on('data',chunk=>{
-      buffer+=chunk;if(buffer.length>2*1024*1024)return finish(null);
-      const end=buffer.indexOf('\n');if(end<0)return;
-      try{const reply=JSON.parse(buffer.slice(0,end));finish(reply.requestId===id && reply.snapshot && typeof reply.snapshot==='object'?reply.snapshot:null);}catch{finish(null);}
-    });
-  });
-}
-
-const symbols={USD:'$',EUR:'€',GBP:'£',JPY:'¥',CNY:'¥'};
-function money(minor,currency='USD') {
-  if(typeof minor!=='number' || !Number.isFinite(minor))return '—';
-  const code=String(currency||'USD').toUpperCase(),digits=code==='JPY'?0:2;
-  return (symbols[code]??code+' ')+(minor/(digits?100:1)).toFixed(digits);
-}
 function todayValid(snapshot,now){
-  const d=new Date(now),day=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-  return snapshot.today?.day===day && snapshot.today.accountKey===snapshot.accountKey;
+  return snapshot.today?.day===localDay(now) && snapshot.today.accountKey===snapshot.accountKey;
 }
 function localTime(seconds,now) {
   const d=new Date(seconds*1000),today=new Date(now);
@@ -82,14 +52,14 @@ export function describe(snapshot,now=Date.now()) {
   lines.push('Claude 套餐：'+(snapshot.planLabel??'未知')+(snapshot.org?.name?'（组织：'+snapshot.org.name+(snapshot.org.count>1?'，共 '+snapshot.org.count+' 个':'')+'）':''));
   for(const w of windows){
     if(w.kind==='extra'){
-      lines.push('· 额外用量：已用 '+money(w.usedMinor,w.currency)+(w.limitMinor?' / 每月上限 '+money(w.limitMinor,w.currency)+(typeof w.remaining==='number'?'（剩余 '+w.remaining+'%）':''):''));
+      lines.push('· 额外用量：已用 '+formatMoney(w.usedMinor,w.currency)+(w.limitMinor?' / 每月上限 '+formatMoney(w.limitMinor,w.currency)+(typeof w.remaining==='number'?'（剩余 '+w.remaining+'%）':''):''));
       continue;
     }
     const expired=w.resetsAt && w.resetsAt*1000<=now;
     lines.push('· '+(w.label??'额度')+'：'+(expired?'上次已用 '+w.used+'%，已到重置时间，等待刷新':'剩余 '+w.remaining+'%（已用 '+w.used+'%）')+
       (w.resetsAt && !expired?'，'+localTime(w.resetsAt,now)+' 重置（'+until(w.resetsAt,now)+'）':w.resetsAt?'':'，未提供重置时间'));
   }
-  if(snapshot.credits)lines.push('· 预付余额：'+money(snapshot.credits.amountMinor,snapshot.credits.currency));
+  if(snapshot.credits)lines.push('· 预付余额：'+formatMoney(snapshot.credits.amountMinor,snapshot.credits.currency));
   if(todayValid(snapshot,now) && typeof snapshot.today.weeklyUsed==='number')lines.push('· 今日观测到的周额度增量约：+'+snapshot.today.weeklyUsed+' 个百分点（从 '+new Date(snapshot.today.since).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false})+' 起统计）');
   if(!windows.length)lines.push(snapshot.error??'没有额度窗口数据。');
   else if(snapshot.error)lines.push('提示：'+snapshot.error);
@@ -105,8 +75,8 @@ export function describe(snapshot,now=Date.now()) {
       remaining:w.resetsAt && w.resetsAt*1000<=now?null:w.remaining,lastRemaining:w.remaining,
       freshness:w.resetsAt && w.resetsAt*1000<=now?'expired':snapshot.queryOk!==true || ageMs===null || ageMs>600000?'cached':'fresh',
       resetsAt:w.resetsAt?new Date(w.resetsAt*1000).toISOString():null,resetsAtLocal:w.resetsAt?localTime(w.resetsAt,now):null,
-      ...(w.kind==='extra'?{usedAmount:money(w.usedMinor,w.currency),limitAmount:w.limitMinor?money(w.limitMinor,w.currency):null}:{})})),
-    credits:snapshot.credits?money(snapshot.credits.amountMinor,snapshot.credits.currency):null,
+      ...(w.kind==='extra'?{usedAmount:formatMoney(w.usedMinor,w.currency),limitAmount:w.limitMinor?formatMoney(w.limitMinor,w.currency):null}:{})})),
+    credits:snapshot.credits?formatMoney(snapshot.credits.amountMinor,snapshot.credits.currency):null,
     todayWeeklyUsed:todayValid(snapshot,now)?snapshot.today.weeklyUsed:null,
     observedAt:snapshot.observedAt?new Date(snapshot.observedAt).toISOString():null,error:snapshot.error??null,errorCode:snapshot.errorCode??null};
   return {text:lines.join('\n'),data};
@@ -124,7 +94,7 @@ const tool={
 async function callTool(args) {
   let snapshot=null,note='';
   if(args?.refresh===true){
-    snapshot=await requestFresh();
+    snapshot=await requestPipeRefresh(DATA_DIR,{timeoutMs:95000,connectTimeoutMs:400});
     if(!snapshot)note='（挂件没有响应刷新请求，下面是上次保存的数据）\n';
   }
   if(!snapshot)snapshot=readJson(path.join(DATA_DIR,'status.json'));
@@ -137,6 +107,11 @@ async function callTool(args) {
   return {content:[{type:'text',text:note+text},{type:'text',text:'JSON: '+JSON.stringify(data)}],structuredContent:data,isError:!snapshot || (!snapshot.ok && !snapshot.queryOk)};
 }
 
+// Answer with the client's protocol version when this server supports it, and
+// otherwise with the newest one it does, as the protocol asks.
+const PROTOCOL_VERSIONS=['2025-11-25','2025-06-18','2025-03-26','2024-11-05'];
+export function negotiateVersion(requested){return PROTOCOL_VERSIONS.includes(requested)?requested:PROTOCOL_VERSIONS[0];}
+
 function send(message){process.stdout.write(JSON.stringify(message)+'\n');}
 async function handle(message) {
   if(!message || typeof message!=='object' || Array.isArray(message) || typeof message.method!=='string'){
@@ -147,7 +122,7 @@ async function handle(message) {
   try{
     let result;
     switch(message.method){
-      case 'initialize':result={protocolVersion:typeof message.params?.protocolVersion==='string'?message.params.protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'claude-niang-usage',title:'Claude娘额度',version:VERSION},instructions:'当用户询问 Claude 额度、用量、剩余次数或重置时间时，调用 get_claude_usage。'};break;
+      case 'initialize':result={protocolVersion:negotiateVersion(message.params?.protocolVersion),capabilities:{tools:{}},serverInfo:{name:'claude-niang-usage',title:'Claude娘额度',version:VERSION},instructions:'当用户询问 Claude 额度、用量、剩余次数或重置时间时，调用 get_claude_usage。'};break;
       case 'ping':result={};break;
       case 'tools/list':result={tools:[tool]};break;
       case 'tools/call':

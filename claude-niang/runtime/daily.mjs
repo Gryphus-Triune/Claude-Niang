@@ -1,11 +1,8 @@
 import path from 'node:path';
 import {atomicJson} from './claude-usage.mjs';
-import {readJson} from './worker-state.mjs';
+import {readJson,localDay} from './shared.mjs';
 
-export function localDay(ms){
-  const d=new Date(ms);
-  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-}
+export {localDay};
 // Observed percentage-point changes, not exact message or token consumption.
 export function advanceLedger(previous,snapshot,now=Date.now()){
   if(!snapshot?.ok)return previous??null;

@@ -11,7 +11,7 @@
     $panel=[Windows.Controls.StackPanel]::new()
     $preview=[Windows.Controls.Image]::new();$preview.Height=128;$preview.Stretch=[Windows.Media.Stretch]::Uniform
     [Windows.Media.RenderOptions]::SetBitmapScalingMode($preview,[Windows.Media.BitmapScalingMode]::HighQuality)
-    try{$preview.Source=Read-WidgetCharacterImage $character.path}catch{$button.IsEnabled=$false}
+    try{$preview.Source=Read-WidgetCharacterThumbnail $character.path}catch{$button.IsEnabled=$false}
     $panel.Children.Add($preview)|Out-Null
     $title=[Windows.Controls.TextBlock]::new();$title.Text=$character.name;$title.FontSize=14.5;$title.FontWeight=[Windows.FontWeights]::SemiBold
     $title.HorizontalAlignment=[Windows.HorizontalAlignment]::Center;$title.Margin=[Windows.Thickness]::new(0,10,0,5)

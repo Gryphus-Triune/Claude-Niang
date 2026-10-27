@@ -3,8 +3,8 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {atomicJson} from './claude-usage.mjs';
-import {healthyWorker,readJson} from './worker-state.mjs';
-import {requestPipeRefresh} from './worker-ipc.mjs';
+import {healthyWorker} from './worker-state.mjs';
+import {readJson,requestPipeRefresh} from './shared.mjs';
 
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {readUsage} from './claude-usage.mjs';
-import {formatMoney} from './format.mjs';
+import {formatMoney} from './shared.mjs';
 
 // 检测套餐：直接读一次 claude.ai（与挂件相同的只读请求），不输出 Cookie、令牌或组织编号。
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');

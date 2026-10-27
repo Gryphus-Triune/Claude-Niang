@@ -1,6 +1,6 @@
 ﻿Add-Type -AssemblyName WindowsBase
 if(!('ClaudeWidgetOcclusionRecovery' -as [type])){
-Add-Type -TypeDefinition @'
+Add-WidgetType -TypeName ClaudeWidgetOcclusionRecovery -TypeDefinition @'
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;

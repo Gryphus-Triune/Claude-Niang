@@ -1,4 +1,4 @@
-﻿# Bundled local quotes (original, written for Claude娘). No network or account data is used.
+﻿# Bundled local quotes; see ../assets/quotes-LICENSE.txt for upstream attribution. No network or account data is used.
 $script:widgetQuotesBuiltInPath=Join-Path $PSScriptRoot '..\assets\quotes.json'
 $script:widgetQuoteRandom=New-Object System.Random
 $script:widgetQuoteLastByDataDir=@{}
@@ -75,13 +75,8 @@ function Save-WidgetQuotes([string]$DataDir,$Quotes) {
   $rows=@(ConvertTo-WidgetQuoteRows $Quotes)
   if($rows.Count-eq 0){throw '请至少填写一条有效语录；每条最多 200 字，权重须大于 0 且不超过 1000。'}
   $null=[IO.Directory]::CreateDirectory($DataDir)
-  $file=Join-Path $DataDir 'quotes.json'
-  $temp=$file+'.'+$PID+'.tmp'
-  try{
-    $json=@{version=1;quotes=@($rows)} | ConvertTo-Json -Depth 5
-    [IO.File]::WriteAllText($temp,$json,[Text.UTF8Encoding]::new($true))
-    if([IO.File]::Exists($file)){[IO.File]::Replace($temp,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temp,$file)}
-  }finally{if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)}}
+  $json=@{version=1;quotes=@($rows)} | ConvertTo-Json -Depth 5
+  Write-WidgetFileAtomic (Join-Path $DataDir 'quotes.json') $json -Bom -Backup
   Get-WidgetQuoteSettings $DataDir
 }
 

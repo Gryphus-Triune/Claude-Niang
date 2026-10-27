@@ -20,7 +20,7 @@ function Get-WidgetAudioVolume {
 }
 
 if(!('ClaudeNiangPcm' -as [type])){
-    Add-Type -TypeDefinition @'
+    Add-WidgetType -TypeName ClaudeNiangPcm -TypeDefinition @'
 using System;
 public static class ClaudeNiangPcm {
  public static byte[] Scale(byte[] source,int offset,int length,double volume){
@@ -37,7 +37,7 @@ public static class ClaudeNiangPcm {
 '@
 }
 if(!('ClaudeClickAudioQueue' -as [type])){
-    Add-Type -TypeDefinition @'
+    Add-WidgetType -TypeName ClaudeClickAudioQueue -TypeDefinition @'
 using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
@@ -162,11 +162,7 @@ function Copy-WidgetAudioPreferences($Preferences) {
 }
 function Write-WidgetAudioPreferences([string]$DataDir,$Preferences) {
     if(!$DataDir){throw '个人音效目录不可用。'}
-    $file=Join-Path $DataDir 'audio-preferences.json';$temporary=$file+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
-    try{
-        [IO.File]::WriteAllText($temporary,($Preferences|ConvertTo-Json -Depth 5),[Text.UTF8Encoding]::new($false))
-        if([IO.File]::Exists($file)){[IO.File]::Replace($temporary,$file,($file+'.bak'),$true)}else{[IO.File]::Move($temporary,$file)}
-    }finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
+    Write-WidgetFileAtomic (Join-Path $DataDir 'audio-preferences.json') ($Preferences|ConvertTo-Json -Depth 5) -Backup
 }
 function Get-WidgetCustomAudioPath($Audio,[string]$Slot) {
     $entry=$Audio.Preferences[$Slot]
@@ -323,8 +319,18 @@ function Import-WidgetAudio([ValidateSet('press','release')][string]$Slot,[strin
         $info.StandardOutputEncoding=[Text.UTF8Encoding]::new($false)
         $process=[Diagnostics.Process]::new();$process.StartInfo=$info
         if(!$process.Start()){throw '音效转换无法启动。'}
-        if(!$process.WaitForExit(5000)){$process.Kill();$null=$process.WaitForExit(1000);throw '音效读取超时，请换一个文件。'}
-        $result=$process.StandardOutput.ReadToEnd()|ConvertFrom-Json
+        # Both pipes are drained in the background, so a chatty converter cannot
+        # fill one and stall; the widget keeps drawing and reacting while it waits.
+        $output=$process.StandardOutput.ReadToEndAsync();$errors=$process.StandardError.ReadToEndAsync()
+        $deadline=[Diagnostics.Stopwatch]::StartNew();$pump='System.Windows.Threading.Dispatcher'-as [type]
+        while(!$process.HasExited -and $deadline.ElapsedMilliseconds-lt 5000){
+            if($pump){$pump::CurrentDispatcher.Invoke([Action]{},[Windows.Threading.DispatcherPriority]::Background)}
+            Start-Sleep -Milliseconds 15
+        }
+        if(!$process.HasExited){$process.Kill();$null=$process.WaitForExit(1000);throw '音效读取超时，请换一个文件。'}
+        $process.WaitForExit()
+        $result=$output.Result|ConvertFrom-Json
+        if(!$result.ok -and $errors.Result){Write-WidgetLog $audio.DataDir 'widget' ('音效转换输出：'+$errors.Result)}
         if(!$result.ok -or $process.ExitCode-ne 0){
             $message=switch($result.error){
                 'too_long'{'音效超过5秒，请选择不超过5秒的文件。'}

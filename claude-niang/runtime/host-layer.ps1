@@ -1,5 +1,5 @@
 ﻿if(!('ClaudeWidgetZOrderNative' -as [type])){
-Add-Type -TypeDefinition @'
+Add-WidgetType -TypeName ClaudeWidgetZOrderNative -TypeDefinition @'
 using System;using System.Runtime.InteropServices;
 public static class ClaudeWidgetZOrderNative {
  [DllImport("user32.dll")]public static extern IntPtr GetWindow(IntPtr h,uint command);

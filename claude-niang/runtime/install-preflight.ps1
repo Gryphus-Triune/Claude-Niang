@@ -37,7 +37,7 @@ function Test-WidgetWebView2([string]$AppDir,[string]$ConfigPath='') {
   $out=Join-Path ([IO.Path]::GetTempPath()) ('claude-niang-check-'+[Guid]::NewGuid().ToString('N')+'.json')
   try{
     $arguments=@('-NoLogo','-NoProfile','-NonInteractive','-STA','-ExecutionPolicy','Bypass','-File',(Join-Path $AppDir 'runtime\claude-browser.ps1'),'-Mode','check','-OutFile',$out)
-    & (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe') @arguments|Out-Null
+    & (Get-WidgetPowerShellPath) @arguments|Out-Null
     $result=Get-Content -LiteralPath $out -Raw -Encoding UTF8|ConvertFrom-Json
     return $result
   }catch{return [pscustomobject]@{ok=$false;errorCode='NO_SDK';error=$_.Exception.Message}}

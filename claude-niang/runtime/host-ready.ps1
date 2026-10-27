@@ -2,7 +2,7 @@
 # its interface (UI Automation would switch on Chromium accessibility inside
 # Claude and slow it down), wait until the main window has been visible with a
 # normal size for two consecutive samples about one second apart.
-if(!('ClaudeHostWindow' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'claude-host.cs') -IgnoreWarnings}
+if(!('ClaudeHostWindow' -as [type])){Add-WidgetType -TypeName ClaudeHostWindow -Path (Join-Path $PSScriptRoot 'claude-host.cs')}
 function New-WidgetReadinessState {
   return [pscustomobject]@{host=[IntPtr]::Zero;ready=$false;candidate=$false;lastProbe=-1000L;desktopStarted=$false}
 }
