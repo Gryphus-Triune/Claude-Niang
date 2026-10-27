@@ -10,12 +10,13 @@
 - **看得见数据时间**：展示上次读取时间，过了重置时间会提示等待刷新。
 - **自己的桌面角色**：支持换形象、语录、点击音效和音乐律动。
 - **可选对话扩展**：在 Claude 对话里询问额度，或明确要求刷新。
+- **更容易排查**：挂件运行期间会尝试恢复意外退出的监督进程，并在本机保存诊断日志。
 
 适用于 Windows，需 Node.js 20 或更新及 WebView2。读取额度本身不调用模型，无需 API Key。**非 Anthropic 官方产品。**
 
 <br clear="right">
 
-<img src="docs/images/quota-preview.png" alt="Claude 娘额度气泡的本地界面预览，使用示例数据" width="378">
+<img src="docs/screenshot.png" alt="Claude 娘额度气泡的界面预览，使用示例数据" width="378">
 
 *程序原生界面预览，额度为示例数据；实际额度窗口由账号和组织提供的信息决定。*
 
@@ -33,7 +34,9 @@ Free 或部分组织可能没有额度窗口；挂件无法提供接口没有返
 
 ## 下载与安装
 
-1. 打开 **[最新版发布页](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest)**，下载 `claude-niang-v版本号-windows.zip`。当前版本为 `claude-niang-v1.2.0-windows.zip`；同名 `.sha256` 文件用于校验下载内容。普通用户请选择这个完整包，GitHub 自动生成的 `Source code` 归档供开发者使用。
+**当前程序版本：1.3.2**。
+
+1. 打开 **[最新版发布页](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest)**，在 Assets 中下载 `claude-niang-v版本号-windows.zip`。同名 `.sha256` 用于校验下载内容，普通安装不需要它；GitHub 自动生成的 `Source code` 归档供开发者使用。
 2. **完整解压**到以后不会移动的文件夹，例如 `%LOCALAPPDATA%\Programs\Claude娘额度挂件`。不要在压缩包里直接运行。
 3. 双击 **安装Claude娘.cmd**，按提示检查依赖并在 Claude 娘自己的登录窗口中登录 claude.ai。安装不需要管理员权限。
 4. 打开 Claude 桌面端主窗口，点右下角的角色或 **↻**，读取第一次额度。
@@ -101,7 +104,7 @@ Windows 10、ARM64、微软商店版 Claude、多屏和混合 DPI 仍需更多�
 
 这是**可选扩展**，不影响挂件的日常使用。
 
-先安装并打开挂件，在挂件里登录并读取一次额度。然后双击完整发布包中的 `Claude桌面扩展\claude-niang-usage.mcpb`，在 Claude 桌面端里安装扩展。
+先安装并打开挂件，在挂件里登录并读取一次额度。然后双击完整发布包中的 `Claude桌面扩展\claude-niang-usage.mcpb`，在 Claude 桌面端里安装扩展。最新版发布页也提供单独的 `.mcpb`；它不能代替挂件本身。
 
 问“我还剩多少额度？”时，扩展读取本机保存的快照，并告诉你数据时间；明确说“刷新额度”时，才让正在运行的挂件重新读取。挂件未运行时，扩展会说明刷新未成功，并尽量给出上次保存的数据。
 
@@ -128,6 +131,7 @@ Windows 10、ARM64、微软商店版 Claude、多屏和混合 DPI 仍需更多�
 ## 数据与隐私
 
 - 每个 Windows 用户使用自己的登录、设置和数据。登录保存在 `%LOCALAPPDATA%\ClaudeNiang\webview`；额度快照、设置和统计保存在旁边的 `state`。
+- 诊断日志保存在 `%LOCALAPPDATA%\ClaudeNiang\state\logs\claude-niang.log`，用于记录运行状态和错误；反馈前请检查并去除个人信息。超过 1 MB 时会保留一份旧日志。
 - 挂件不读取常用浏览器或 Claude 桌面端里的登录，也不把 Cookie 交给 Node.js 部分或桌面扩展。
 - 读取额度时访问 claude.ai 的组织、用量、必要的套餐信息和余额接口；组织和余额会缓存，减少重复请求。
 - 没有自动更新、遥测或第三方上传。音乐分析也只在本机进行。
@@ -146,6 +150,8 @@ claude.ai 的网页接口不是公开 API，随时可能变化而失效。请遵
 | 已限流 | 按提示等待后手动刷新，程序不会定时重试。 |
 | 退出登录失败 | 先关闭已打开的登录窗口，或等当前查询结束后再试。 |
 | 安装失败 | 查看程序文件夹 `claude-niang` 内的 `install-log.txt`。 |
+| 旧版开机后出现空白 PowerShell 窗口 | 更新后双击一次“打开Claude娘.cmd”，重新登记隐藏启动。 |
+| 挂件消失、读取持续失败或音乐律动停止 | 查看 `%LOCALAPPDATA%\ClaudeNiang\state\logs\claude-niang.log`。 |
 
 仍有问题，请[提交反馈](https://github.com/Gryphus-Triune/Claude-Niang/issues/new/choose)，附上挂件版本、Windows 与 Node.js 版本、复现步骤及错误提示。发布日志前请去掉用户名、个人路径、邮箱和组织信息，勿上传 Cookie、登录文件或浏览器配置目录。
 
@@ -155,7 +161,7 @@ claude.ai 的网页接口不是公开 API，随时可能变化而失效。请遵
 
 ## 许可与致谢
 
-基于 [GPT 娘 1.3.5](https://github.com/T7moris/GPT-Niang)（MIT）改写，借鉴了[小鲸鱼余额挂件](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)的提醒与记账思路。
+基于 [GPT 娘 1.3.5](https://github.com/T7moris/GPT-Niang)（MIT）改写，借鉴了[小鲸鱼余额挂件](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget)的提醒与记账思路。内置语录中有 7 句来自该项目，来源与许可见 [语录许可说明](claude-niang/assets/quotes-LICENSE.txt)。
 
 源代码、内置语录和点击音效遵循 [MIT License](LICENSE)，保留 GPT 娘原作者和贡献者的署名。默认形象图片（`claude-niang/assets/claude-niang.png`）和由它做成的扩展图标版权归仓库作者所有，不在 MIT 许可范围内。WebView2 文件遵循微软自己的许可，见 `claude-niang/runtime/webview2/LICENSE.txt` 与 `NOTICE.txt`。
 

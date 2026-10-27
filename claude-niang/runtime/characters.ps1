@@ -1,5 +1,7 @@
 ﻿# Local character images are decoded into detached pixels before they reach WPF.
 # Imports own a normalized PNG; selected IDs are saved by widget.ps1.
+$script:widgetRemovedCharacterLimit=5
+
 function Resolve-WidgetCharacterPath([string]$Root,[string]$File) {
   if(!$File -or [IO.Path]::IsPathRooted($File)){throw '角色图片路径必须位于角色目录中。'}
   $base=[IO.Path]::GetFullPath($Root).TrimEnd([char[]]@('\','/'))+[IO.Path]::DirectorySeparatorChar
@@ -32,11 +34,7 @@ function Read-WidgetCharacterRows([string]$Path) {
 }
 
 function Write-WidgetCharacterCatalog([string]$Path,$Catalog) {
-  $temp=$Path+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
-  try{
-    [IO.File]::WriteAllText($temp,($Catalog|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
-    if([IO.File]::Exists($Path)){[IO.File]::Replace($temp,$Path,($Path+'.bak'),$true)}else{[IO.File]::Move($temp,$Path)}
-  }finally{if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)}}
+  Write-WidgetFileAtomic $Path ($Catalog|ConvertTo-Json -Depth 6) -Backup
 }
 
 function Get-WidgetCharacters([string]$AppDir,[string]$DataDir) {
@@ -53,7 +51,7 @@ function Get-WidgetCharacters([string]$AppDir,[string]$DataDir) {
       if(![IO.File]::Exists($path)){continue}
       $rows.Add([pscustomobject]@{id=$entry.id;name=$entry.name.Trim();kind='custom';path=$path});$seen[$entry.id]=$true
     }
-  }catch{}
+  }catch{Write-WidgetLog $DataDir 'widget' ('自定义形象清单无法读取：'+$_.Exception.Message)}
   foreach($row in $rows){$row}
 }
 
@@ -87,6 +85,20 @@ function Read-WidgetCharacterImage([string]$Path) {
     if($_.Exception.Message-match '^(请选择|支持 |图片)'){throw}
     throw '图片无法读取，请选择完整的 PNG、JPG、BMP 或 GIF 文件。'
   }finally{if($stream){$stream.Dispose()}}
+}
+
+# A gallery preview decoded at preview size: decoding the full picture for a
+# 128-pixel card cost a full-resolution pixel copy per character. Choosing a
+# card still loads the picture through Read-WidgetCharacterImage and its checks.
+function Read-WidgetCharacterThumbnail([string]$Path,[int]$Size=256) {
+  $stream=[IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+  try{
+    if($stream.Length-eq 0 -or $stream.Length-gt 20MB){throw '图片不能为空，且不能超过 20 MB。'}
+    $image=[Windows.Media.Imaging.BitmapImage]::new()
+    $image.BeginInit();$image.CacheOption=[Windows.Media.Imaging.BitmapCacheOption]::OnLoad;$image.DecodePixelWidth=$Size;$image.StreamSource=$stream;$image.EndInit()
+    $image.Freeze()
+    return $image
+  }finally{$stream.Dispose()}
 }
 
 function Import-WidgetCharacter([string]$DataDir,[string]$SourcePath) {
@@ -152,7 +164,7 @@ function Get-WidgetRemovedCharacters([string]$DataDir) {
       if(![IO.File]::Exists($path)){continue}
       [pscustomobject]@{id=$entry.id;name=$entry.name;kind='custom';path=$path;removedAt=$entry.removedAt}
     }
-  }catch{}
+  }catch{Write-WidgetLog $DataDir 'widget' ('已删除形象清单无法读取：'+$_.Exception.Message)}
 }
 
 function Remove-WidgetCharacter([string]$DataDir,[string]$Id) {
@@ -170,8 +182,15 @@ function Remove-WidgetCharacter([string]$DataDir,[string]$Id) {
     [IO.File]::Move($source,$destination);$moved=$true
     $removed=[pscustomobject]@{id=$Id;name=$entry.name;file=$entry.file;removedAt=[DateTime]::UtcNow.ToString('o')}
     $catalog.characters=@($catalog.characters|Where-Object{$_.id-cne $Id})
-    $catalog.removed=@($catalog.removed)+@($removed)
+    # Only recent removals can be undone; older ones are deleted for good
+    # instead of keeping their pictures in the data folder forever.
+    $kept=@(@($catalog.removed)+@($removed)|Sort-Object {[string]$_.removedAt})
+    $expired=@($kept|Select-Object -SkipLast $script:widgetRemovedCharacterLimit)
+    $catalog.removed=@($kept|Select-Object -Last $script:widgetRemovedCharacterLimit)
     Write-WidgetCharacterCatalog $catalogPath $catalog
+    foreach($entry in $expired){
+      try{$old=Resolve-WidgetCharacterPath $removedDirectory ([string]$entry.file);if([IO.File]::Exists($old)){[IO.File]::Delete($old)}}catch{}
+    }
     $moved=$false
     return [pscustomobject]@{id=$Id;name=$entry.name;kind='custom';path=$destination;removedAt=$removed.removedAt}
   }finally{

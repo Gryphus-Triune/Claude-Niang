@@ -21,3 +21,5 @@ dist/
 .env.*
 Thumbs.db
 .DS_Store
+**/claude-niang-launcher.exe
+**/claude-niang-launcher.exe.*

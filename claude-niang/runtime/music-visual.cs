@@ -157,13 +157,12 @@ public sealed class ClaudeMusicVisual : IDisposable {
     readonly MusicArt under,over;readonly ScaleTransform press=new ScaleTransform();readonly Color[] palette;
     readonly Transform oldTransform;readonly Point oldOrigin;readonly ClaudeMusicGlasses glasses;
     readonly FrameworkElement menuButton;double menuLeft,menuTop;
-    double baseLeft,baseTop,normalX,normalY,relativeX,bottomDistance,dpi=1,figurePhysical,anchorX,anchorY,lastFrame,colorTime,artTime,lastLightPaint,grabX,grabY,lastGrabAt;
+    double baseLeft,baseTop,normalX,normalY,relativeX,bottomDistance,dpi=1,figurePhysical,anchorX,anchorY,lastFrame,artTime,lastLightPaint,grabX,grabY,lastGrabAt;
     readonly Point initialFoot;
     bool follow,allowed,blocked,visible,disposed,wasPaused,appearanceReady;IntPtr host,widget;
     Rect imageRect,alpha;HwndSource lampSource;MusicLamp lampArt;int lampBand=-1;
     static readonly Color RoomColor=Color.FromArgb(145,10,7,23);
     public bool Enabled {get;private set;}
-    public bool ColorEnabled {get;set;}
     public Action<IntPtr,int,int,int> FollowLamp {get;set;}
     public Func<int[]> HostFrame {get;set;}
     public bool Paused {get;private set;}
@@ -202,7 +201,7 @@ public sealed class ClaudeMusicVisual : IDisposable {
         var first=AlphaBounds((BitmapSource)girl.Source,girl.Width,girl.Height);initialFoot=girl.PointToScreen(new Point(first.Left+first.Width/2,first.Bottom));
         under=new MusicArt(this,false);over=new MusicArt(this,true);
         root.Children.Insert(root.Children.IndexOf(girl),under);root.Children.Insert(root.Children.IndexOf(girl)+1,over);
-        capture=new ClaudeMusicCapture(true);Enabled=true;ColorEnabled=false;
+        capture=new ClaudeMusicCapture(true);Enabled=true;
         RefreshLayout();lastFrame=ClaudeMusicCapture.NowMs;
         girl.PreviewMouseMove+=Drag;CompositionTarget.Rendering+=Frame;
         // Transparent/occluded WPF windows may stop requesting render frames.
@@ -299,7 +298,7 @@ public sealed class ClaudeMusicVisual : IDisposable {
             press.ScaleX=1;press.ScaleY=1-Motion.Bend;
             if(Motion.Props>=1)appearanceReady=true;
             if(!Paused) {
-                if(Motion.Energy>.005||Motion.Pulse>.005){double flow=.3+.7*Motion.Energy;artTime+=dt*flow;if(ColorEnabled)colorTime+=dt*flow;changed=true;}
+                if(Motion.Energy>.005||Motion.Pulse>.005){double flow=.3+.7*Motion.Energy;artTime+=dt*flow;changed=true;}
                 RequestPosition();
             }
             if(changed){under.InvalidateVisual();over.InvalidateVisual();}
@@ -390,18 +389,6 @@ public sealed class ClaudeMusicVisual : IDisposable {
     }
     void DrawOver(DrawingContext dc) {
         double p=appearanceReady?1:Motion.Props;if(p<=0)return;dc.PushTransform(new ScaleTransform(1,1-Motion.Bend,175,350));dc.PushOpacity(p);
-        if(ColorEnabled) {
-            var flow=new LinearGradientBrush();for(int i=0;i<palette.Length;i++)flow.GradientStops.Add(new GradientStop(palette[i],(double)i/(palette.Length-1)));
-            flow.StartPoint=new Point(0,.5);flow.EndPoint=new Point(1,.5);flow.SpreadMethod=GradientSpreadMethod.Repeat;flow.RelativeTransform=new TranslateTransform(-(colorTime/2.6%1),0);
-            var imageBrush=new ImageBrush(girl.Source){Stretch=Stretch.Uniform,ViewportUnits=BrushMappingMode.Absolute,Viewport=imageRect};
-            dc.PushOpacity(.27);dc.PushOpacityMask(imageBrush);dc.DrawRectangle(flow,null,imageRect);dc.Pop();dc.Pop();
-            if(glasses!=null){
-                var face=new RadialGradientBrush();face.Center=face.GradientOrigin=new Point((alpha.Left+alpha.Width*glasses.FaceX)/girl.Width,(alpha.Top+alpha.Height*glasses.FaceY)/girl.Height);
-                face.RadiusX=alpha.Width*glasses.FaceWidth/girl.Width;face.RadiusY=alpha.Height*glasses.FaceHeight/girl.Height;
-                face.GradientStops.Add(new GradientStop(Color.FromArgb(245,255,255,255),0));face.GradientStops.Add(new GradientStop(Color.FromArgb(220,255,255,255),.65));face.GradientStops.Add(new GradientStop(Colors.Transparent,1));
-                dc.PushOpacityMask(face);dc.DrawImage(girl.Source,imageRect);dc.Pop();
-            }
-        }
         if(glasses!=null) {
             // The lens centres are 67.8 units apart in the geometry above.
             double size=alpha.Width*glasses.Span/67.8;

@@ -21,10 +21,95 @@ function Get-WidgetSupervisorArguments([string]$AppDir){
   return ('-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "'+(Join-Path ([IO.Path]::GetFullPath($AppDir).TrimEnd('\')) 'runtime\supervisor.ps1')+'"')
 }
 
+# Task Scheduler and the Startup folder start the supervisor through a small
+# windowless launcher (runtime\launcher.cs) compiled at install time. A
+# PowerShell started directly with a normal window is handed to Windows Terminal
+# on Windows 11, where -WindowStyle Hidden cannot hide it, and closing that empty
+# window ended the supervisor.
+function Get-WidgetLauncherPath([string]$AppDir){
+  return (Join-Path ([IO.Path]::GetFullPath($AppDir).TrimEnd('\')) 'runtime\claude-niang-launcher.exe')
+}
+
+# Builds the launcher, or rebuilds it when runtime\launcher.cs has changed (the
+# source hash is stored as the program's product version). A running copy (the
+# scheduled task waits on it) cannot be overwritten, but it can be renamed.
+function Initialize-WidgetLauncher([string]$AppDir){
+  $root=[IO.Path]::GetFullPath($AppDir).TrimEnd('\')
+  $source=Join-Path $root 'runtime\launcher.cs';$target=Get-WidgetLauncherPath $root
+  # Copies renamed while still running are removed once they have exited.
+  foreach($old in @(Get-ChildItem -LiteralPath (Split-Path $target -Parent) -Filter 'claude-niang-launcher.exe.*.old' -ErrorAction SilentlyContinue)){try{Remove-Item -LiteralPath $old.FullName -ErrorAction Stop}catch{}}
+  $sha=[Security.Cryptography.SHA256]::Create()
+  try{$hash=([BitConverter]::ToString($sha.ComputeHash([IO.File]::ReadAllBytes($source)))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
+  if([IO.File]::Exists($target) -and [Diagnostics.FileVersionInfo]::GetVersionInfo($target).ProductVersion-eq $hash){return $target}
+  $temp=$target+'.'+[Guid]::NewGuid().ToString('N')+'.build.exe'
+  try{
+    $code=[IO.File]::ReadAllText($source,[Text.Encoding]::UTF8)-replace '(?m)^static class ',('[assembly: System.Reflection.AssemblyInformationalVersion("'+$hash+'")]'+"`r`nstatic class ")
+    Add-Type -TypeDefinition $code -OutputAssembly $temp -OutputType WindowsApplication -ErrorAction Stop
+    if([IO.File]::Exists($target)){[IO.File]::Move($target,$target+'.'+[Guid]::NewGuid().ToString('N')+'.old')}
+    [IO.File]::Move($temp,$target)
+  }finally{if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)}}
+  return $target
+}
+
+function Get-WidgetHeadlessArguments([string]$AppDir){
+  return ('--headless "'+(Get-WidgetPowerShellPath)+'" '+(Get-WidgetSupervisorArguments $AppDir))
+}
+
+# How Task Scheduler and the Startup folder start the supervisor: the launcher
+# where it may run, otherwise conhost.exe --headless. Smart App Control, AppLocker
+# and similar policies can block a locally built, unsigned program; conhost.exe
+# ships with Windows and also keeps the console invisible (it does not pass on
+# the supervisor's exit code, so restart-after-failure does not apply there).
+# The launcher is tried once per process.
+function Resolve-WidgetSupervisorLaunch([string]$AppDir){
+  $root=[IO.Path]::GetFullPath($AppDir).TrimEnd('\')
+  if($script:widgetSupervisorLaunch -and $script:widgetSupervisorLaunch.AppDir-ieq $root){return $script:widgetSupervisorLaunch}
+  $launch=$null;$reason=$null
+  try{
+    $launcher=Initialize-WidgetLauncher $root
+    $check=Start-Process -FilePath $launcher -ArgumentList 'check' -WindowStyle Hidden -PassThru -ErrorAction Stop
+    try{
+      if(!$check.WaitForExit(10000)){$reason='launcher check timed out'}
+      elseif($check.ExitCode-ne 0){$reason='launcher check exited '+$check.ExitCode}
+      else{$launch=[pscustomobject]@{AppDir=$root;Kind='launcher';Execute=$launcher;Arguments='supervisor';Reason=$null}}
+    }finally{$check.Dispose()}
+  }catch{$reason=$_.Exception.Message}
+  if(!$launch){$launch=[pscustomobject]@{AppDir=$root;Kind='headless';Execute=(Join-Path $env:WINDIR 'System32\conhost.exe');Arguments=(Get-WidgetHeadlessArguments $root);Reason=$reason}}
+  $script:widgetSupervisorLaunch=$launch
+  return $launch
+}
+
+# 'launcher' or 'headless' for the two current forms, 'legacy' for what earlier
+# versions registered for this same folder (a direct PowerShell command, or
+# runtime\supervisor.vbs under wscript.exe), $null for anything else.
+function Get-WidgetSupervisorCommandKind([string]$Execute,[string]$Arguments,[string]$AppDir){
+  if(!$Execute){return $null}
+  try{$file=[IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Execute))}catch{return $null}
+  $root=[IO.Path]::GetFullPath($AppDir).TrimEnd('\');$Arguments=[string]$Arguments
+  if($file-ieq (Get-WidgetLauncherPath $root) -and $Arguments.Trim()-ieq 'supervisor'){return 'launcher'}
+  if($file-ieq (Join-Path $env:WINDIR 'System32\conhost.exe') -and $Arguments-ieq (Get-WidgetHeadlessArguments $root)){return 'headless'}
+  if($file-ieq (Get-WidgetPowerShellPath) -and $Arguments-ieq (Get-WidgetSupervisorArguments $root)){return 'legacy'}
+  if($file-ieq (Join-Path $env:WINDIR 'System32\wscript.exe') -and $Arguments-ieq ('//B //NoLogo "'+(Join-Path $root 'runtime\supervisor.vbs')+'"')){return 'legacy'}
+  return $null
+}
+
 function Test-WidgetStartupShortcutIdentity {
   param([Parameter(Mandatory=$true)]$Shortcut,[Parameter(Mandatory=$true)][string]$AppDir)
-  if(!$Shortcut.TargetPath){return $false}
-  return [IO.Path]::GetFullPath([string]$Shortcut.TargetPath)-ieq (Get-WidgetPowerShellPath) -and [string]$Shortcut.Arguments-ieq (Get-WidgetSupervisorArguments $AppDir)
+  return [bool](Get-WidgetSupervisorCommandKind ([string]$Shortcut.TargetPath) ([string]$Shortcut.Arguments) $AppDir)
+}
+
+# The Startup shortcut is an independent fallback if the scheduled task cannot
+# run, so it always uses conhost.exe --headless: should policy start blocking the
+# launcher after installation, the shortcut still starts the supervisor at sign-in
+# (the task's copy and this one share a mutex, so only one keeps running).
+function Set-WidgetStartupShortcut([string]$Path,[string]$AppDir){
+  $link=(New-Object -ComObject WScript.Shell).CreateShortcut($Path)
+  $link.TargetPath=Join-Path $env:WINDIR 'System32\conhost.exe'
+  $link.Arguments=Get-WidgetHeadlessArguments $AppDir
+  $link.WorkingDirectory=Join-Path $env:WINDIR 'System32'
+  $link.WindowStyle=7
+  $link.Description='Claude娘：Claude 桌面端额度挂件'
+  $link.Save()
 }
 
 function Stop-WidgetGui {
@@ -79,7 +164,7 @@ function Get-WidgetSupervisorInfo {
   if([IO.Path]::GetFullPath([string]$config.appDir).TrimEnd('\')-ine $root){throw 'Supervisor installation identity mismatch.'}
   $data=[IO.Path]::GetFullPath([string]$config.dataDir)
   $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  [pscustomobject]@{AppDir=$root;DataDir=$data;Sid=$sid;TaskName=('Claude Niang - '+$sid);TaskPath='\';Execute=(Get-WidgetPowerShellPath);Arguments=(Get-WidgetSupervisorArguments $root);WorkingDirectory=(Join-Path $env:WINDIR 'System32')}
+  [pscustomobject]@{AppDir=$root;DataDir=$data;Sid=$sid;TaskName=('Claude Niang - '+$sid);TaskPath='\';Execute=(Get-WidgetLauncherPath $root);Arguments='supervisor';WorkingDirectory=(Join-Path $env:WINDIR 'System32')}
 }
 
 function Resolve-WidgetSupervisorSid([string]$Identity){
@@ -100,10 +185,21 @@ function Assert-WidgetSupervisorTaskIdentity {
   $actions=@($Task.Actions)
   if($actions.Count-ne 1){throw 'Supervisor task action count mismatch.'}
   $action=$actions[0]
-  $sameExecute=[IO.Path]::GetFullPath([string]$action.Execute)-ieq $Info.Execute
   # A task registered by another Claude娘 folder points at that folder's
-  # supervisor; it is not ours to replace silently.
-  if(!$sameExecute -or [string]$action.Arguments-ine $Info.Arguments){throw '已有另一个位置的 Claude 娘登记了自动启动。请先在原文件夹运行「停用Claude娘.cmd」。'}
+  # supervisor; it is not ours to replace silently. This folder's older direct
+  # PowerShell command is ours and is upgraded by Register-WidgetSupervisorTask.
+  if(!(Get-WidgetSupervisorCommandKind ([string]$action.Execute) ([string]$action.Arguments) $Info.AppDir)){throw '已有另一个位置的 Claude 娘登记了自动启动。请先在原文件夹运行「停用Claude娘.cmd」。'}
+}
+
+# Whether a task or shortcut already uses the chosen launch form. Anything else
+# of ours (an earlier form, or the launcher after policy started blocking it) is
+# replaced by Register-WidgetSupervisorTask or Set-WidgetStartupShortcut.
+function Test-WidgetSupervisorCommandCurrent([string]$Execute,[string]$Arguments,$Launch){
+  return (Get-WidgetSupervisorCommandKind $Execute $Arguments $Launch.AppDir)-eq $Launch.Kind
+}
+function Test-WidgetSupervisorTaskCurrent($Task,$Launch){
+  $action=@($Task.Actions)[0]
+  return Test-WidgetSupervisorCommandCurrent ([string]$action.Execute) ([string]$action.Arguments) $Launch
 }
 
 function Get-WidgetSupervisorTask {
@@ -119,11 +215,7 @@ function Get-WidgetSupervisorTask {
 
 function Write-WidgetSupervisorJson([string]$File,$Value){
   $null=New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($File)) -Force
-  $temp=$File+'.'+$PID+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
-  try{
-    [IO.File]::WriteAllText($temp,($Value|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
-    if([IO.File]::Exists($File)){[IO.File]::Replace($temp,$File,[System.Management.Automation.Language.NullString]::Value)}else{[IO.File]::Move($temp,$File)}
-  }finally{if([IO.File]::Exists($temp)){[IO.File]::Delete($temp)}}
+  Write-WidgetFileAtomic $File ($Value|ConvertTo-Json -Depth 6)
 }
 
 function Set-WidgetSupervisorPause {
@@ -131,7 +223,7 @@ function Set-WidgetSupervisorPause {
   $info=Get-WidgetSupervisorInfo $AppDir
   if($HostHandle-le 0){try{$presence=Get-Content -LiteralPath (Join-Path $info.DataDir 'presence.json') -Raw -Encoding UTF8|ConvertFrom-Json;$HostHandle=[long]$presence.host}catch{}}
   if($HostHandle-gt 0 -and $HostPid-le 0){
-    if(!('ClaudeWidgetSupervisorPauseNative' -as [type])){Add-Type -TypeDefinition @'
+    if(!('ClaudeWidgetSupervisorPauseNative' -as [type])){Add-WidgetType -TypeName ClaudeWidgetSupervisorPauseNative -TypeDefinition @'
 using System;using System.Runtime.InteropServices;
 public static class ClaudeWidgetSupervisorPauseNative {
  [DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
@@ -273,12 +365,15 @@ function New-WidgetSupervisorTaskDefinition {
 function Register-WidgetSupervisorTask {
   param([Parameter(Mandatory=$true)][string]$AppDir)
   $info=Get-WidgetSupervisorInfo $AppDir
+  $launch=Resolve-WidgetSupervisorLaunch $info.AppDir
+  $info.Execute=$launch.Execute;$info.Arguments=$launch.Arguments
   foreach($relative in @('runtime\supervisor.ps1','widget.ps1')){if(!(Test-Path -LiteralPath (Join-Path $info.AppDir $relative))){throw "Missing supervisor file: $relative"}}
   $existing=Get-WidgetSupervisorTask $info
   if($existing -and [string]$existing.State-eq 'Running'){Stop-WidgetSupervisorTask $AppDir}
   Resume-WidgetSupervisor $AppDir
   $registration=[pscustomobject]@{ok=$true;method='existing';account=$null;errors=@()}
-  if(!$existing){$registration=Register-WidgetSupervisorTaskDefinition $info}
+  # A missing task, or one in the older visible-console form, is (re)registered.
+  if(!$existing -or !(Test-WidgetSupervisorTaskCurrent $existing $launch)){$registration=Register-WidgetSupervisorTaskDefinition $info}
   $registered=$null
   if($registration.ok){try{$registered=Get-WidgetSupervisorTask $info}catch{$registration.errors=@($registration.errors)+('登记后核对失败：'+$_.Exception.Message)}}
   if(!$registered){

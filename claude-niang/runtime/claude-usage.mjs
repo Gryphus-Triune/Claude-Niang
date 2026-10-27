@@ -352,11 +352,20 @@ export async function readUsage(config,options={}) {
 }
 
 // --- shared file helpers ------------------------------------------------------
+const pauseSync=ms=>Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,ms);
 export function atomicJson(file,data) {
   fs.mkdirSync(path.dirname(file),{recursive:true});
   const tmp=file+'.'+process.pid+'.'+randomUUID()+'.tmp';
-  try{fs.writeFileSync(tmp,JSON.stringify(data,null,2)+'\n');fs.renameSync(tmp,file);}
-  finally{try{fs.unlinkSync(tmp);}catch{}}
+  try{
+    fs.writeFileSync(tmp,JSON.stringify(data,null,2)+'\n');
+    // Windows refuses the rename while another process (the widget reading the
+    // file, an antivirus scan) has the target open. That lasts milliseconds, so
+    // try a few more times before reporting a failure.
+    for(let attempt=1;;attempt++){
+      try{fs.renameSync(tmp,file);break;}
+      catch(error){if(attempt>=5 || !['EPERM','EBUSY','EACCES'].includes(error?.code))throw error;pauseSync(15);}
+    }
+  }finally{try{fs.unlinkSync(tmp);}catch{}}
 }
 
 export function freshness(window,observedAt,now=Date.now(),staleMs=420000) {

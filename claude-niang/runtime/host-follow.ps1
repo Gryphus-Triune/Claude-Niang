@@ -1,5 +1,5 @@
 ﻿if(!('ClaudeWidgetHostFollower' -as [type])){
-Add-Type -TypeDefinition @'
+Add-WidgetType -TypeName ClaudeWidgetHostFollower -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 

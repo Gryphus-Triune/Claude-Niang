@@ -31,7 +31,7 @@ function Initialize-WidgetClaudeSettings($Settings){
 
 function Test-WidgetEditorOpen {
   # Any of the widget's own editing windows being open counts as "busy".
-  return [bool]($script:audioDialogOpen -or ($script:quoteEditor -and $script:quoteEditor.IsVisible) -or ($script:colorTriggerEditor -and $script:colorTriggerEditor.IsVisible) -or ($script:characterGallery -and $script:characterGallery.IsVisible))
+  return [bool]($script:audioDialogOpen -or ($script:quoteEditor -and $script:quoteEditor.IsVisible) -or ($script:characterGallery -and $script:characterGallery.IsVisible))
 }
 
 
@@ -67,12 +67,11 @@ function Get-WidgetStaleSeconds {return 600}
 
 # --- refresh, sign in, sign out ------------------------------------------------
 
-function Get-WidgetPowerShellExe {return (Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe')}
 function Start-WidgetBrowserHelper([ValidateSet('login','logout')][string]$Mode,[string]$OutFile){
   if($OutFile){Remove-Item -LiteralPath $OutFile -ErrorAction SilentlyContinue}
   $arguments=@('-NoLogo','-NoProfile','-NonInteractive','-STA','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"'+(Join-Path $script:appDir 'runtime\claude-browser.ps1')+'"'),'-Mode',$Mode,'-ConfigPath',('"'+$script:configPath+'"'))
   if($OutFile){$arguments+=@('-OutFile',('"'+$OutFile+'"'))}
-  return Start-Process -FilePath (Get-WidgetPowerShellExe) -ArgumentList $arguments -WindowStyle Hidden -PassThru
+  return Start-Process -FilePath (Get-WidgetPowerShellPath) -ArgumentList $arguments -WindowStyle Hidden -PassThru
 }
 function Test-WidgetBrowserOperationRunning($Process){
   if(!$Process){return $false}
@@ -96,7 +95,7 @@ function Start-WidgetLogout {
   }catch{[Windows.MessageBox]::Show(('退出登录失败：'+$_.Exception.Message),'Claude 娘')|Out-Null}
 }
 function Write-WidgetSessionReset([ValidateSet('signed-in','signed-out')][string]$State){
-  Write-WidgetJson (Join-Path $script:dataDir 'session-reset.flag') @{id=[Guid]::NewGuid().ToString('N');at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();state=$State}
+  Write-WidgetJson -NoBackup (Join-Path $script:dataDir 'session-reset.flag') @{id=[Guid]::NewGuid().ToString('N');at=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();state=$State}
   $script:noticeState=@{notified=@{};last=@{}};$script:noticeQueue=@();$script:noticeLastStamp='';Save-WidgetNoticeState
   $script:status=[pscustomobject]@{ok=$false;queryOk=$false;windows=@();loggedIn=($State-eq 'signed-in');errorCode=$(if($State-eq 'signed-out'){'NOT_LOGGED_IN'}else{'MANUAL'});error=$(if($State-eq 'signed-out'){'已退出登录，请先登录 Claude 账号'}else{'登录成功，点角色或 ↻ 手动读取额度'})}
   $script:statusStamp=[IO.File]::GetLastWriteTimeUtc((Join-Path $script:dataDir 'status.json')).Ticks
@@ -154,7 +153,7 @@ function Save-WidgetNoticeState {
     $keys=@($script:noticeState.notified.Keys|Sort-Object {$script:noticeState.notified[$_]} -Descending|Select-Object -First 200)
     $last=@(foreach($key in @($script:noticeState.last.Keys|Sort-Object {$script:noticeState.last[$_].at} -Descending|Select-Object -First 200)){@{key=$key;used=$script:noticeState.last[$key].used;resetsAt=$script:noticeState.last[$key].resetsAt;at=$script:noticeState.last[$key].at}})
     Write-WidgetJson (Join-Path $script:dataDir 'notices.json') @{version=2;notified=$keys;last=$last}
-  }catch{}
+  }catch{Write-WidgetLog $script:dataDir 'widget' ('提醒记录保存失败：'+$_.Exception.Message)}
 }
 function Test-WidgetNoticeBusy {
   return [bool]$script:drag -or $script:context.IsOpen -or $script:settingsSizePreview -or (Test-WidgetEditorOpen)
@@ -233,7 +232,7 @@ function Get-WidgetClaudeDetailLines([long]$NowSeconds){
   $weekly=@(Get-WidgetQuotaWindows|Where-Object{$_.kind-eq 'weekly'})[0]
   $pace=Get-WidgetWeeklyPaceText $weekly $NowSeconds
   if($pace){$lines+=$pace}
-  if($script:status.today -and $script:status.today.accountKey-eq $script:status.accountKey -and $script:status.today.day-eq [DateTime]::Now.ToString('yyyy-MM-dd') -and $null-ne $script:status.today.weeklyUsed){
+  if($script:status.today -and $script:status.today.accountKey-eq $script:status.accountKey -and $script:status.today.day-eq [DateTime]::Now.ToString('yyyy-MM-dd',[Globalization.CultureInfo]::InvariantCulture) -and $null-ne $script:status.today.weeklyUsed){
     $since=[DateTimeOffset]::FromUnixTimeMilliseconds([long]$script:status.today.since).ToLocalTime().ToString('HH:mm')
     $lines+=('今日观测到的周额度增量约 +'+([double]$script:status.today.weeklyUsed).ToString('0.#')+'%（'+$since+' 起统计）')
   }

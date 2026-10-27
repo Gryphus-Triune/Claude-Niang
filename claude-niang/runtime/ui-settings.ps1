@@ -158,30 +158,6 @@ function Initialize-WidgetSettingsMenu {
   Add-SettingsPanel $bubbleSize.Panel
   $script:settingsMenuUi.Hide=Add-SettingsAction '隐藏设置按钮' {param($sender,$event)$script:hideMenu=$sender.IsChecked;Set-MenuVisible $false;Save-Settings} -Description '仍可右键点角色打开设置' -Checkable -ReturnItem
   } -ReturnItem
-  $script:settingsMenuUi.Colors=Add-SettingsSubmenu '配色效果' {
-  $script:settingsMenuUi.ColorMixed=Add-SettingsAction '台词与颜色独立随机' {Set-WidgetColorMode 'mixed';Save-Settings;Update-WidgetSettingsMenu} -Description '先抽台词，再抽变色；每句都能触发' -Checkable -ReturnItem
-  $script:settingsMenuUi.ColorOriginal=Add-SettingsAction '保持原色' {Set-WidgetColorMode 'original';Save-Settings;Update-WidgetSettingsMenu} -Checkable -ReturnItem
-  $script:settingsMenuUi.ColorPause=Add-SettingsAction '暂停颜色流动' {param($sender,$event)$script:colorPaused=$sender.IsChecked;Update-WidgetColorScene;Save-Settings} -Checkable -ReturnItem
-  Add-SettingsDivider
-  $chance=New-SettingsSlider '全挂件变色概率' 0 30 0.5
-  $script:settingsMenuUi.ColorChance=$chance.Slider;$script:settingsMenuUi.ColorChanceText=$chance.Value;$chance.Slider.Value=$script:colorChance
-  $chance.Slider.Add_ValueChanged({param($sender,$event)if($script:settingsMenuSync){return};$script:colorChance=[Math]::Round($sender.Value,1);$script:settingsMenuUi.ColorChanceText.Text=$script:colorChance.ToString()+'%';Save-Settings})
-  Add-SettingsPanel $chance.Panel
-  $textChance=New-SettingsSlider '仅台词变色概率' 0 30 0.5
-  $script:settingsMenuUi.ColorTextChance=$textChance.Slider;$script:settingsMenuUi.ColorTextChanceText=$textChance.Value;$textChance.Slider.Value=$script:colorTextChance
-  $textChance.Slider.Add_ValueChanged({param($sender,$event)if($script:settingsMenuSync){return};$script:colorTextChance=[Math]::Round($sender.Value,1);$script:settingsMenuUi.ColorTextChanceText.Text=$script:colorTextChance.ToString()+'%';Save-Settings})
-  Add-SettingsPanel $textChance.Panel
-  Add-SettingsSection '其他效果' -Divider
-  $script:settingsMenuUi.ColorLinked=Add-SettingsAction '每句都随内容变色' {Set-WidgetColorMode 'linked';Save-Settings;Update-WidgetSettingsMenu} -Checkable -ReturnItem
-  $script:settingsMenuUi.ColorRainbow=Add-SettingsAction '一直流动彩虹' {Set-WidgetColorMode 'rainbow';Save-Settings;Update-WidgetSettingsMenu} -Checkable -ReturnItem
-  $script:settingsMenuUi.ColorRare=Add-SettingsAction '只偶尔全变色' {Set-WidgetColorMode 'rare';Save-Settings;Update-WidgetSettingsMenu} -Checkable -ReturnItem
-  $script:settingsMenuUi.ColorSurprise=Add-SettingsAction '偶尔变色＋指定台词' {Set-WidgetColorMode 'surprise';Save-Settings;Update-WidgetSettingsMenu} -Checkable -ReturnItem
-  $script:settingsMenuUi.ColorSpecial=Add-SettingsAction '只在指定台词出现时变色' {Set-WidgetColorMode 'special';Save-Settings;Update-WidgetSettingsMenu} -Checkable -ReturnItem
-  $script:settingsMenuUi.ColorTriggerList=Add-SettingsAction '编辑指定台词名单' {Open-ColorTriggerEditor} -Description '独立随机模式不使用此名单' -ReturnItem
-  } -ReturnItem
-  # Retain controls only for internal maintenance; the normal menu has no entry.
-  $script:context.Items.Remove($script:settingsMenuUi.Colors)
-  $script:settingsSubmenus=@($script:settingsSubmenus|Where-Object{$_-ne $script:settingsMenuUi.Colors})
   $script:settingsMenuUi.Audio=Add-SettingsSubmenu '声音与点击' {
   $script:settingsMenuUi.Sound=Add-SettingsAction '点击音效' {param($sender,$event)$script:soundOn=$sender.IsChecked;if(!$script:soundOn){Stop-WidgetAudio};$script:settingsMenuUi.Volume.IsEnabled=$script:soundOn;Save-Settings} -Checkable -StayOpen -ReturnItem
   $volume=New-SettingsSlider '音量' 0 1 0.1
@@ -208,7 +184,7 @@ function Initialize-WidgetSettingsMenu {
   } -ReturnItem
   Add-SettingsAction '编辑我的语录' {Open-QuoteEditor}
   $script:settingsMenuUi.MusicEnabled=Add-SettingsAction '音乐律动' {param($sender,$event)Set-WidgetMusicEnabled ([bool]$sender.IsChecked);$script:context.IsOpen=$false} -Checkable -ReturnItem
-  $script:settingsMenuUi.MusicEnabled.ToolTip='先听几拍确认节奏，再跟拍。拿起时按设置的双倍概率决定人物是否变色；拖动后松手可甩出，碰边反弹、落地继续跟拍。关闭后恢复原位置。'
+  $script:settingsMenuUi.MusicEnabled.ToolTip='先听几拍确认节奏，再跟拍。拖动后松手可甩出，碰边反弹、落地继续跟拍。关闭后恢复原位置。'
   $script:settingsMenuUi.AutoQuotes=Add-SettingsSubmenu '自动语录' {
     $script:settingsMenuUi.AutoQuoteEnabled=Add-SettingsAction '开启自动语录' {param($sender,$event)Set-WidgetAutoQuoteSettings ([bool]$sender.IsChecked) $script:autoQuoteIntervalSeconds;Update-WidgetSettingsMenu} -Checkable -ReturnItem
     Add-SettingsDivider
@@ -288,13 +264,6 @@ function Update-WidgetSettingsMenu{
     $desktopVisibility=if($script:followHost){[Windows.Visibility]::Collapsed}else{[Windows.Visibility]::Visible}
     $script:settingsMenuUi.Topmost.Visibility=$desktopVisibility;$script:settingsMenuUi.TopmostDivider.Visibility=$desktopVisibility
     $script:settingsMenuUi.Tap.IsChecked=$script:bubbleTapAdvance;$script:settingsMenuUi.Sound.IsChecked=$script:soundOn;$script:settingsMenuUi.Hide.IsChecked=$script:hideMenu
-    $script:settingsMenuUi.ColorLinked.IsChecked=$script:colorMode-eq 'linked';$script:settingsMenuUi.ColorRainbow.IsChecked=$script:colorMode-eq 'rainbow';$script:settingsMenuUi.ColorOriginal.IsChecked=$script:colorMode-eq 'original'
-    $script:settingsMenuUi.ColorSurprise.IsChecked=$script:colorMode-eq 'surprise';$script:settingsMenuUi.ColorRare.IsChecked=$script:colorMode-eq 'rare';$script:settingsMenuUi.ColorSpecial.IsChecked=$script:colorMode-eq 'special'
-    $script:settingsMenuUi.ColorMixed.IsChecked=$script:colorMode-eq 'mixed'
-    $script:settingsMenuUi.ColorChance.Value=$script:colorChance;$script:settingsMenuUi.ColorChanceText.Text=$script:colorChance.ToString()+'%';$script:settingsMenuUi.ColorChance.IsEnabled=$script:colorMode-in @('rare','surprise','mixed')
-    $script:settingsMenuUi.ColorTextChance.Value=$script:colorTextChance;$script:settingsMenuUi.ColorTextChanceText.Text=$script:colorTextChance.ToString()+'%';$script:settingsMenuUi.ColorTextChance.IsEnabled=$script:colorMode-eq 'mixed'
-    $script:settingsMenuUi.ColorTriggerList.IsEnabled=$script:colorMode-in @('special','surprise')
-    $script:settingsMenuUi.ColorPause.IsChecked=$script:colorPaused;$script:settingsMenuUi.ColorPause.IsEnabled=$script:colorMode-ne 'original'
     $audio=Get-WidgetAudioStatus
     $script:settingsMenuUi.AudioBuiltin.IsChecked=$audio.mode-eq 'builtin';$script:settingsMenuUi.AudioCustom.IsChecked=$audio.mode-eq 'custom'
     foreach($phase in @('press','release')){
@@ -331,7 +300,7 @@ function Set-WidgetMenuBounds {
       $script:context.Resources['SettingsSubmenuWidth']=[double][Math]::Max(180,[Math]::Min(300,($frame.Right-$frame.Left)/$dpi-16))
       $script:context.Resources['SettingsSubmenuMaxHeight']=[double][Math]::Max(160,[Math]::Min(600,($frame.Bottom-$frame.Top)/$dpi-16))
     }
-  }catch{}
+  }catch{Write-WidgetLog $script:dataDir 'menu' ('菜单尺寸计算失败：'+$_.Exception.Message)}
 }
 
 function Set-WidgetSizePreview([bool]$Active,[bool]$PreviewBubble=$false) {
@@ -386,7 +355,7 @@ function Position-WidgetMenuToHost {
     $x=[int][Math]::Round([Math]::Max($frame.Left+$margin,[Math]::Min($frame.Right-$width-$margin,$desiredX)))
     $y=[int][Math]::Round([Math]::Max($frame.Top+$margin,[Math]::Min($frame.Bottom-$height-$margin,$origin.Y)))
     if($menu.Left-ne $x -or $menu.Top-ne $y){[ClaudeWidgetNative]::SetWindowPos($source.Handle,[IntPtr]::Zero,$x,$y,0,0,0x15)|Out-Null}
-  }catch{}
+  }catch{Write-WidgetLog $script:dataDir 'menu' ('菜单定位失败：'+$_.Exception.Message)}
 }
 
 # Outside-click dismissal adapted from PR #46; keep it with the existing menu.
@@ -437,7 +406,7 @@ function Invoke-SettingsMenuDismissTick {
 }
 function Initialize-SettingsMenuDismiss {
   if(-not ('ClaudeSettingsMenuPointer' -as [type])){
-    Add-Type @'
+    Add-WidgetType -TypeName ClaudeSettingsMenuPointer -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 public static class ClaudeSettingsMenuPointer {

@@ -9,6 +9,11 @@ $null=[IO.Directory]::CreateDirectory($outRoot)
 $buildRoot=Join-Path $outRoot ('.build-'+[Guid]::NewGuid().ToString('N'))
 $releaseRoot=Join-Path $buildRoot 'Claude娘额度挂件'
 Add-Type -AssemblyName System.IO.Compression,System.IO.Compression.FileSystem
+function Get-ReleaseFileSha256([string]$Path){
+  $sha=[Security.Cryptography.SHA256]::Create();$stream=[IO.File]::OpenRead($Path)
+  try{return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
+  finally{$stream.Dispose();$sha.Dispose()}
+}
 function New-ReleaseZip([string]$Source,[string]$Target,[string]$Prefix=''){
   $stream=[IO.File]::Open($Target,[IO.FileMode]::Create,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
   $archive=$null
@@ -28,11 +33,11 @@ try{
   $package=Get-Content -LiteralPath (Join-Path $releaseRoot 'claude-niang\package.json') -Raw -Encoding UTF8|ConvertFrom-Json
   $extensionDir=Join-Path $releaseRoot 'Claude桌面扩展';$null=[IO.Directory]::CreateDirectory($extensionDir)
   New-ReleaseZip (Join-Path $releaseRoot 'claude-niang\extension') (Join-Path $extensionDir 'claude-niang-usage.mcpb')
-  $checks=@(Get-ChildItem -LiteralPath $releaseRoot -Recurse -File|Sort-Object FullName|ForEach-Object{(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()+'  '+$_.FullName.Substring($releaseRoot.Length+1).Replace('\','/')})
+  $checks=@(Get-ChildItem -LiteralPath $releaseRoot -Recurse -File|Sort-Object FullName|ForEach-Object{(Get-ReleaseFileSha256 $_.FullName)+'  '+$_.FullName.Substring($releaseRoot.Length+1).Replace('\','/')})
   [IO.File]::WriteAllText((Join-Path $releaseRoot 'CHECKSUMS.sha256'),($checks-join "`n")+"`n",[Text.UTF8Encoding]::new($false))
   $target=Join-Path $outRoot ('claude-niang-v'+$package.version+'-windows.zip')
   New-ReleaseZip $releaseRoot $target 'Claude娘额度挂件/'
-  $hash=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
+  $hash=Get-ReleaseFileSha256 $target
   [IO.File]::WriteAllText(($target+'.sha256'),$hash+'  '+[IO.Path]::GetFileName($target)+"`n",[Text.UTF8Encoding]::new($false))
   Write-Host ('已生成：'+$target)
 }finally{

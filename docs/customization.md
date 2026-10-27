@@ -18,7 +18,7 @@
 
 ## 文档预览
 
-`docs/images/quota-preview.png` 是由本地界面生成的额度气泡预览，使用示例数据，不代表任何账号的实际额度。预览应与当前界面保持一致。
+`docs/screenshot.png` 是额度气泡预览，使用示例数据，不代表任何账号的实际额度。`docs/images/quota-preview.png` 保留了此前的预览。展示内容应与当前界面保持一致。
 
 新增或移动文档图片时，同时更新 README 引用及 `tools/release.mjs` 的文档资源白名单，确保发布 ZIP 解压后也能显示。
 

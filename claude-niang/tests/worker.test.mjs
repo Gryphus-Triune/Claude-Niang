@@ -7,7 +7,8 @@ import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {atomicJson} from '../runtime/claude-usage.mjs';
-import {requestPipeRefresh} from '../runtime/worker-ipc.mjs';
+import {requestPipeRefresh} from '../runtime/shared.mjs';
+import {pluginVersion} from '../runtime/metadata.mjs';
 import * as fx from './fixtures/bundles.mjs';
 
 const here=path.dirname(fileURLToPath(import.meta.url)),appDir=path.resolve(here,'..');
@@ -59,6 +60,26 @@ test('startup and visibility never read, even with migrated automatic settings a
   s.click();await until(()=>s.status()?.ok);assert.equal(s.count(),1);assert.equal('pollMinutes' in s.status(),false);
   await wait(1000);assert.equal(s.count(),1);
 });
+test('worker-status.json stays fresh without being rewritten on every heartbeat, and reads are logged',async t=>{
+  const s=setup(t),healthFile=path.join(s.dataDir,'worker-status.json');await start(s);
+  const first=read(healthFile).at,firstSeq=read(healthFile).seq;await wait(1200);
+  assert.equal(read(healthFile).at,first,'rewritten although nothing changed');
+  await until(()=>read(healthFile).at!==first,4000);assert.ok(Date.now()-read(healthFile).at<5000);
+  assert.ok(read(healthFile).seq>firstSeq,'heartbeat counter did not advance');
+  s.click();await until(()=>s.status()?.ok);
+  const log=await until(()=>{try{return fs.readFileSync(path.join(s.dataDir,'logs','claude-niang.log'),'utf8');}catch{return null;}});
+  assert.match(log,/\[worker \d+\] 后台进程启动/);
+  await until(()=>/\[worker \d+\] 读取完成：Max 20x，\d+ 个额度窗口/.test(fs.readFileSync(path.join(s.dataDir,'logs','claude-niang.log'),'utf8')));
+  assert.doesNotMatch(fs.readFileSync(path.join(s.dataDir,'logs','claude-niang.log'),'utf8'),new RegExp(fx.ORG_MAX),'organization id logged');
+});
+test('signing in again lifts a rate-limit block from the previous sign-in',async t=>{
+  const s=setup(t),limited=fx.bundle();limited.requests.usage=fx.request('u',429,{error:'rate'},{retryAfter:'600'});
+  atomicJson(s.bundleFile,limited);await start(s);assert.equal((await ask(s)).errorCode,'RATE_LIMITED');assert.equal(s.count(),1);
+  assert.equal((await ask(s)).errorCode,'RATE_LIMITED');assert.equal(s.count(),1,'blocked request still read');
+  atomicJson(s.bundleFile,fx.bundle());s.session('signed-in');await until(()=>s.status()?.errorCode==='MANUAL');
+  assert.equal(fs.existsSync(path.join(s.dataDir,'quota-backoff.json')),false);
+  const fresh=await ask(s);assert.equal(fresh.ok,true);assert.equal(s.count(),2);
+});
 test('a click made before worker startup is consumed once and never replayed on restart',async t=>{
   const s=setup(t);s.click();const first=await start(s);await until(()=>s.status()?.ok);assert.equal(s.count(),1);
   await stop(first);await start(s);await wait(1100);assert.equal(s.count(),1);assert.equal(s.status().restored,true);
@@ -72,7 +93,7 @@ test('simultaneous manual refreshes share one read; MCP exposes structured cache
     {id:2,method:'tools/list'},
     {id:3,method:'tools/call',params:{name:'get_claude_usage',arguments:{refresh:true}}}
   ]);
-  assert.equal(mcp[0].result.serverInfo.version,'1.2.0');assert.equal(mcp[2].result.structuredContent.refreshMode,'manual');
+  assert.equal(mcp[0].result.serverInfo.version,pluginVersion);assert.equal(mcp[2].result.structuredContent.refreshMode,'manual');
   assert.equal(mcp[2].result.isError,false);assert.match(mcp[2].result.content[0].text,/Max 20x/);assert.equal(s.count(),1);
 });
 test('organization selection bypasses same-context debounce and returns B immediately',async t=>{

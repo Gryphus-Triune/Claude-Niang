@@ -1,11 +1,13 @@
 ﻿param([switch]$CheckOnly)
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'common.ps1')
 . (Join-Path $PSScriptRoot 'supervisor-task.ps1')
+. (Join-Path $PSScriptRoot 'log.ps1')
 $appDir=Split-Path $PSScriptRoot -Parent
 $info=Get-WidgetSupervisorInfo $appDir
-if(!('ClaudeHostWindow' -as [type])){Add-Type -Path (Join-Path $PSScriptRoot 'claude-host.cs') -IgnoreWarnings}
+if(!('ClaudeHostWindow' -as [type])){Add-WidgetType -TypeName ClaudeHostWindow -Path (Join-Path $PSScriptRoot 'claude-host.cs')}
 if(!('ClaudeWidgetSupervisorNative' -as [type])){
-Add-Type -TypeDefinition @'
+Add-WidgetType -TypeName ClaudeWidgetSupervisorNative -TypeDefinition @'
 using System;using System.Runtime.InteropServices;
 public static class ClaudeWidgetSupervisorNative {
  [DllImport("user32.dll")]public static extern bool IsWindow(IntPtr h);
@@ -28,12 +30,34 @@ function Test-WidgetSupervisorPause($Pause,$Hosts){
   return $false
 }
 
+# The loop reads the same few JSON files every 1.5 seconds; parse one again
+# only when its time stamp or size has changed.
+$script:jsonCache=@{}
+function Read-WidgetCachedJson([string]$File){
+  $info=[IO.FileInfo]::new($File)
+  if(!$info.Exists){$script:jsonCache.Remove($File);return $null}
+  $stamp=[string]$info.LastWriteTimeUtc.Ticks+':'+$info.Length
+  $cached=$script:jsonCache[$File]
+  if($cached -and $cached.stamp-eq $stamp){return $cached.value}
+  $value=[IO.File]::ReadAllText($File,[Text.Encoding]::UTF8)|ConvertFrom-Json
+  $script:jsonCache[$File]=@{stamp=$stamp;value=$value}
+  return $value
+}
+
+# The full identity check (process start time, then the command line through
+# WMI) is costly, so it runs once per widget process. Later rounds only confirm
+# that the same window still belongs to the same process.
+$script:verifiedGui=''
 function Get-WidgetSupervisorRunningGui([string]$DataDir,[string]$ExpectedAppDir){
   $process=$null
   try{
-    $runtime=Get-Content -LiteralPath (Join-Path $DataDir 'runtime.json') -Raw -Encoding UTF8|ConvertFrom-Json
+    $runtime=Read-WidgetCachedJson (Join-Path $DataDir 'runtime.json')
+    if(!$runtime){$script:verifiedGui='';return $false}
     $handle=[IntPtr]([long]$runtime.widget)
-    if(![ClaudeWidgetSupervisorNative]::IsWindow($handle) -or [ClaudeWidgetSupervisorNative]::ProcessId($handle)-ne [int]$runtime.pid){return $false}
+    if(![ClaudeWidgetSupervisorNative]::IsWindow($handle) -or [ClaudeWidgetSupervisorNative]::ProcessId($handle)-ne [int]$runtime.pid){$script:verifiedGui='';return $false}
+    $identity=([string]$runtime.pid)+'|'+([string]$runtime.widget)+'|'+([string]$runtime.processStartedAt)+'|'+([string]$runtime.startedAt)
+    if($identity-eq $script:verifiedGui){return $true}
+    $script:verifiedGui=''
     $process=Get-Process -Id ([int]$runtime.pid) -ErrorAction Stop
     if($process.ProcessName-notin @('powershell','pwsh')){return $false}
     if($runtime.processStartedAt){
@@ -45,8 +69,10 @@ function Get-WidgetSupervisorRunningGui([string]$DataDir,[string]$ExpectedAppDir
     }
     $command=(Get-CimInstance Win32_Process -Filter ('ProcessId='+[int]$runtime.pid) -ErrorAction Stop).CommandLine
     $scriptFile=Join-Path $ExpectedAppDir 'widget.ps1'
-    return $command.IndexOf(('"'+$scriptFile+'"'),[StringComparison]::OrdinalIgnoreCase)-ge 0
-  }catch{return $false}finally{if($process){$process.Dispose()}}
+    $matched=$command.IndexOf(('"'+$scriptFile+'"'),[StringComparison]::OrdinalIgnoreCase)-ge 0
+    if($matched){$script:verifiedGui=$identity}
+    return $matched
+  }catch{$script:verifiedGui='';return $false}finally{if($process){$process.Dispose()}}
 }
 
 if($CheckOnly){return [pscustomobject]@{ok=$true;info=$info;hosts=@([ClaudeHostWindow]::Hosts())}}
@@ -58,18 +84,20 @@ if(!$owned){$mutex.Dispose();exit 0}
 $pauseFile=Join-Path $info.DataDir 'supervisor-pause.json'
 $nextLaunch=[DateTime]::MinValue
 $nextStatus=[DateTime]::MinValue
+$lastStatus=''
 $lastVisibleHostKey=''
 $pendingGui=$null
 $supervisorProcess=Get-Process -Id $PID
 try{$processStartedAt=$supervisorProcess.StartTime.ToUniversalTime().ToString('o')}finally{$supervisorProcess.Dispose()}
+Write-WidgetLog $info.DataDir 'supervisor' '监督进程启动'
 try{
   while($true){
     if((Test-Path -LiteralPath (Join-Path $info.DataDir 'supervisor-disabled.flag')) -or (Test-Path -LiteralPath (Join-Path $info.DataDir 'supervisor-stop.flag'))){break}
     try{
       $hosts=@([ClaudeHostWindow]::Hosts())
-      $settings=$null;try{$settings=Get-Content -LiteralPath (Join-Path $info.DataDir 'settings.json') -Raw -Encoding UTF8|ConvertFrom-Json}catch{}
+      $settings=$null;try{$settings=Read-WidgetCachedJson (Join-Path $info.DataDir 'settings.json')}catch{}
       $desktop=$settings -and $null-ne $settings.followHost -and !$settings.followHost
-      $pause=$null;try{$pause=Get-Content -LiteralPath $pauseFile -Raw -Encoding UTF8|ConvertFrom-Json}catch{}
+      $pause=$null;try{$pause=Read-WidgetCachedJson $pauseFile}catch{}
       $paused=Test-WidgetSupervisorPause $pause $hosts
       if($pause -and !$paused){Remove-Item -LiteralPath $pauseFile -ErrorAction SilentlyContinue}
       $visible=@($hosts|Where-Object{$_.visible})
@@ -81,17 +109,22 @@ try{
       if($pendingGui -and ($running -or $pendingGui.HasExited)){$pendingGui.Dispose();$pendingGui=$null}
       if(!$paused -and ($desktop -or $visible.Count-gt 0) -and !$running -and !$pendingGui -and [DateTime]::UtcNow-ge $nextLaunch){
         $nextLaunch=[DateTime]::UtcNow.AddSeconds(10)
-        $powerShell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $powerShell=Get-WidgetPowerShellPath
+        Write-WidgetLog $info.DataDir 'supervisor' '启动挂件界面'
         $pendingGui=Start-Process -FilePath $powerShell -ArgumentList @('-NoLogo','-NoProfile','-STA','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',('"'+(Join-Path $info.AppDir 'runtime\start-widget.ps1')+'"'),'-WidgetPath',('"'+(Join-Path $info.AppDir 'widget.ps1')+'"')) -WindowStyle Hidden -PassThru
       }
-      if([DateTime]::UtcNow-ge $nextStatus){
+      # supervisor-status.json is only for diagnosis: rewrite it when its
+      # content changes, otherwise once a minute.
+      $statusKey=@($hosts.Count,$visible.Count,$paused,$running)-join '|'
+      if($statusKey-ne $lastStatus -or [DateTime]::UtcNow-ge $nextStatus){
         Write-WidgetSupervisorJson (Join-Path $info.DataDir 'supervisor-status.json') @{pid=$PID;processStartedAt=$processStartedAt;at=[DateTime]::UtcNow.ToString('o');mainWindows=$hosts.Count;visibleWindows=$visible.Count;paused=$paused;widgetRunning=$running;taskName=$info.TaskName}
-        $nextStatus=[DateTime]::UtcNow.AddSeconds(5)
+        $lastStatus=$statusKey;$nextStatus=[DateTime]::UtcNow.AddSeconds(60)
       }
-    }catch{try{[IO.File]::WriteAllText((Join-Path $info.DataDir 'supervisor-error.txt'),$_.Exception.Message)}catch{}}
+    }catch{Write-WidgetLog $info.DataDir 'supervisor' $_}
     Start-Sleep -Milliseconds 1500
   }
 }finally{
+  Write-WidgetLog $info.DataDir 'supervisor' '监督进程退出'
   if($pendingGui){$pendingGui.Dispose()}
   try{
     $statusFile=Join-Path $info.DataDir 'supervisor-status.json'

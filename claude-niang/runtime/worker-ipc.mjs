@@ -1,31 +1,6 @@
-import net from 'node:net';
-import {randomUUID} from 'node:crypto';
-import {workerEndpoint} from './worker-state.mjs';
-
-// The pipe crosses per-process filesystem views while keeping a single writer.
-// It offers only a fresh read-only usage request, never arbitrary commands.
-export function requestPipeRefresh(dataDir,{timeoutMs=45000,connectTimeoutMs=300}={}){
-  // macOS retains its kernel lock and filesystem queue; there is no pipe server.
-  if(process.platform==='darwin')return Promise.resolve(null);
-  return new Promise(resolve=>{
-    const id=randomUUID(),deadline=Date.now()+timeoutMs;let finished=false,buffer='',timer;
-    const socket=net.createConnection(workerEndpoint(dataDir));
-    socket.setEncoding('utf8');
-    const finish=value=>{if(finished)return;finished=true;clearTimeout(timer);socket.destroy();resolve(value);};
-    timer=setTimeout(()=>finish(null),Math.min(connectTimeoutMs,timeoutMs));
-    socket.on('error',()=>finish(null));socket.on('close',()=>finish(null));
-    socket.on('connect',()=>{
-      clearTimeout(timer);timer=setTimeout(()=>finish(null),Math.max(0,deadline-Date.now()));
-      socket.write(JSON.stringify({id,method:'refresh'})+'\n');
-    });
-    socket.on('data',chunk=>{
-      buffer+=chunk.toString('utf8');if(buffer.length>2*1024*1024)return finish(null);
-      const end=buffer.indexOf('\n');if(end<0)return;
-      try{const result=JSON.parse(buffer.slice(0,end));finish(result.requestId===id&&result.snapshot&&typeof result.snapshot==='object'?result.snapshot:null);}catch{finish(null);}
-    });
-  });
-}
-
+// Worker side of the pipe (the client is requestPipeRefresh in shared.mjs). The
+// pipe crosses per-process filesystem views while keeping a single writer, and
+// it accepts only a fresh read-only usage request, never arbitrary commands.
 export function createPipeRefreshHandler(enqueue){
   const pending=new Map();
   return {

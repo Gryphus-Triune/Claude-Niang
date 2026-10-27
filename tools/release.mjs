@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-const rootFiles=['README.md','LICENSE','CHANGELOG.md','CONTRIBUTING.md','docs/customization.md','docs/images/quota-preview.png','.gitignore','.gitattributes','build-release.ps1',
-  '安装Claude娘.cmd','打开Claude娘.cmd','登录Claude账号.cmd','检测套餐.cmd','停用Claude娘.cmd','tools/release.mjs','.github/workflows/ci.yml'];
+const rootFiles=['README.md','LICENSE','CHANGELOG.md','CONTRIBUTING.md','.gitignore','.gitattributes','build-release.ps1',
+  '安装Claude娘.cmd','打开Claude娘.cmd','登录Claude账号.cmd','检测套餐.cmd','停用Claude娘.cmd','tools/release.mjs','tools/quote-layouts.ps1',
+  'docs/screenshot.png','docs/images/quota-preview.png','docs/customization.md','claude-niang/assets/quotes-LICENSE.txt','.github/workflows/ci.yml'];
 function safeRelative(value){
   if(typeof value!=='string' || !value || value.includes('\\') || path.posix.isAbsolute(value) || /^[A-Za-z]:/.test(value) || value.split('/').some(x=>!x || x==='.' || x==='..'))throw new Error('Unsafe release path');
   return value;
@@ -22,8 +23,9 @@ export function releaseFiles(root){
   const required=JSON.parse(fs.readFileSync(path.join(app,'runtime','install-files.json'),'utf8').replace(/^\uFEFF/,''));
   if(!Array.isArray(required) || required.length<10)throw new Error('Invalid install manifest');
   // Only listed files are released, so installation records, logs and account
-  // data in a working copy never reach a package. The extension's server file and
-  // LICENSE are generated below from runtime/mcp.mjs and the root LICENSE.
+  // data in a working copy never reach a package. The extension's server files and
+  // LICENSE are generated below from runtime/mcp.mjs, runtime/shared.mjs and the
+  // root LICENSE.
   const files=[...rootFiles,...required.map(value=>'claude-niang/'+safeRelative(value)),
     'claude-niang/extension/manifest.json','claude-niang/extension/icon.png'];
   for(const file of walk(path.join(app,'tests')))files.push(path.relative(root,file).split(path.sep).join('/'));
@@ -48,10 +50,11 @@ export function createReleaseTree(root,output){
   fs.writeFileSync(manifestPath,JSON.stringify(manifest,null,2)+'\n');
   fs.mkdirSync(path.join(app,'extension','server'),{recursive:true});
   fs.copyFileSync(path.join(app,'runtime','mcp.mjs'),path.join(app,'extension','server','index.mjs'));
+  fs.copyFileSync(path.join(app,'runtime','shared.mjs'),path.join(app,'extension','server','shared.mjs'));
   fs.copyFileSync(path.join(output,'LICENSE'),path.join(app,'extension','LICENSE'));
   const info={name:packageInfo.name,version:packageInfo.version,refreshMode:'manual',platforms:['win32'],containsUserState:false};
   fs.writeFileSync(path.join(output,'release-info.json'),JSON.stringify(info,null,2)+'\n');
-  return {...info,files:files.length+2,output};
+  return {...info,files:files.length+3,output};
 }
 if(process.argv[1] && path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   const args=process.argv.slice(2),value=key=>args[args.indexOf(key)+1];
