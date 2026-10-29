@@ -34,6 +34,7 @@ export function mergeUsageSnapshot(previous,next,now=Date.now()) {
   );
   if(keep){
     const merged={...previous,queryOk:false,error:next.error,errorCode:next.errorCode??null,checkedAt:now};
+    if(previous.credits && previous.creditsStatus?.state!=='error')merged.creditsStatus={...previous.creditsStatus,state:'cached',queryOk:null};
     if(next.errorCode==='NOT_LOGGED_IN')merged.loggedIn=false;
     return merged;
   }

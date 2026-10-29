@@ -52,9 +52,12 @@ function requestJson(request) {
 
 function retryAfterMs(request) {
   const value=typeof request?.retryAfter==='string'?request.retryAfter.trim():'';
-  if(/^\d+$/.test(value))return Math.min(3600000,Math.max(30000,Number(value)*1000));
+  // Preserve server waits; only saturate values beyond JS/.NET's shared date range.
+  // Leave a day of headroom for the worker to add the delay to its later clock.
+  const now=Date.now(),maxWait=253402300799999-now-86400000;
+  if(/^\d+$/.test(value))return Math.min(maxWait,Math.max(30000,Number(value)*1000));
   const date=Date.parse(value);
-  if(Number.isFinite(date))return Math.min(3600000,Math.max(30000,date-Date.now()));
+  if(Number.isFinite(date))return Math.min(maxWait,Math.max(30000,date-now));
   return null;
 }
 
@@ -209,7 +212,7 @@ export function accountFingerprint(orgUuid) {
 }
 
 // --- bundle → snapshot ------------------------------------------------------
-export function normalizeClaudeBundle(bundle,{now=Date.now()}={}) {
+export function normalizeClaudeBundle(bundle,{now=Date.now(),creditsRequested=false}={}) {
   if(!bundle || typeof bundle!=='object')return failure('BROWSER_ERROR');
   if(bundle.errorCode){
     const result=failure(errorMessages[bundle.errorCode]?bundle.errorCode:'BROWSER_ERROR',{detail:bundle.error});
@@ -249,15 +252,27 @@ export function normalizeClaudeBundle(bundle,{now=Date.now()}={}) {
   }
   const {windows,extra,invalid}=normalizeUsage(usageAnswer.json);
   if(invalid)return {...failure('INVALID',{plan}),...base,ok:false,queryOk:false,windows:[],clearPrevious:false};
-  let credits=null;
+  let credits=null,creditsStatus=null;
   const creditsAnswer=classifyRequest(requests.credits);
-  if(creditsAnswer.kind==='ok' && creditsAnswer.json && typeof creditsAnswer.json==='object'){
-    const amount=minor(creditsAnswer.json.amount??creditsAnswer.json.balance?.amount_minor??creditsAnswer.json.amount_minor);
-    if(amount!==null)credits={amountMinor:amount,currency:currencyOf(creditsAnswer.json.currency,creditsAnswer.json.balance?.currency,extra?.currency)};
+  if(extra?.enabled){
+    creditsStatus={state:'unavailable',queryOk:null};
+    if(requests.credits || creditsRequested){
+      const amount=creditsAnswer.kind==='ok' && creditsAnswer.json && typeof creditsAnswer.json==='object'
+        ?minor(creditsAnswer.json.amount??creditsAnswer.json.balance?.amount_minor??creditsAnswer.json.amount_minor):null;
+      if(amount!==null){
+        credits={amountMinor:amount,currency:currencyOf(creditsAnswer.json.currency,creditsAnswer.json.balance?.currency,extra.currency),observedAt:now};
+        creditsStatus={state:'fresh',queryOk:true,checkedAt:now};
+      }else{
+        const errorCode=creditsAnswer.kind==='auth'?'CREDITS_FORBIDDEN':codeFor[creditsAnswer.kind]??'INVALID';
+        const error=errorCode==='CREDITS_FORBIDDEN'?'当前组织没有提供预付余额':errorMessages[errorCode];
+        creditsStatus={state:'error',queryOk:false,checkedAt:now,errorCode,error,
+          ...(creditsAnswer.retryAfterMs?{retryAfterMs:creditsAnswer.retryAfterMs}:{})};
+      }
+    }
   }
   const extraWindow=extra?{kind:'extra',key:'extra',label:'额外用量',minutes:null,resetsAt:null,used:extra.used,remaining:extra.remaining,usedMinor:extra.usedMinor,limitMinor:extra.limitMinor,remainingMinor:extra.remainingMinor,currency:extra.currency}:null;
   const all=extraWindow?[...windows,extraWindow]:windows;
-  const result={...base,ok:all.length>0,queryOk:!invalid,windows:all,extra,credits,clearPrevious:false};
+  const result={...base,ok:all.length>0,queryOk:!invalid,windows:all,extra,credits,creditsStatus,clearPrevious:false};
   if(invalid){result.errorCode='INVALID';result.error=errorMessages.INVALID;}
   else if(all.length===0){result.errorCode='NO_WINDOWS';result.error=plan.plan==='free'?'Free 套餐暂不提供额度窗口':errorMessages.NO_WINDOWS;result.clearPrevious=true;}
   return result;
@@ -326,7 +341,7 @@ export async function readUsage(config,options={}) {
     const bootstrapFetched=!!bundle?.requests?.bootstrap;
     if(skipped)bundle.requests.organizations=cache.request;
     if(bundle?.requests && !bundle.requests.bootstrap && cache?.bootstrap && bundle.selectedOrg===cache.selectedOrg && started-cache.bootstrapAt<12*3600000)bundle.requests.bootstrap=cache.bootstrap;
-    return {snapshot:normalizeClaudeBundle(bundle,{now:now()}),skipped,bundle,started,bootstrapFetched};
+    return {snapshot:normalizeClaudeBundle(bundle,{now:now(),creditsRequested:options.includeCredits===true}),skipped,bundle,started,bootstrapFetched};
   };
   let result=await attempt(true);
   if(result.skipped && !result.snapshot.ok && !isTransientError(result.snapshot.errorCode)){

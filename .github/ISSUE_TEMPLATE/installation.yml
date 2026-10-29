@@ -12,7 +12,7 @@ body:
     attributes:
       label: 挂件版本
       description: 发布包文件名中的版本，或右键菜单里显示的版本。
-      placeholder: 例如 1.3.2
+      placeholder: 例如 1.3.3
     validations:
       required: true
   - type: dropdown

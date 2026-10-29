@@ -65,6 +65,25 @@ function Format-WidgetMoney($Minor,[string]$Currency){
 }
 function Get-WidgetStaleSeconds {return 600}
 
+function Get-WidgetCreditsDetailLine {
+  $credits=$script:status.credits;$creditState=$script:status.creditsStatus
+  $now=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds();$retryHint='请手动刷新'
+  try{if([long]$creditState.retryAt-gt $now){$retryHint='请在 '+[DateTimeOffset]::FromUnixTimeMilliseconds([long]$creditState.retryAt).ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)+' 后手动刷新'}}catch{}
+  if(!$credits){
+    if($creditState.state-eq 'error'){return '预付余额读取失败：'+$(if($creditState.error){[string]$creditState.error}else{'暂时无法读取'})+' · '+$retryHint}
+    if($creditState.state-eq 'unavailable'){return '预付余额：尚未读取'}
+    return $null
+  }
+  $at=$null
+  try{if($credits.observedAt){$at=[DateTimeOffset]::FromUnixTimeMilliseconds([long]$credits.observedAt).ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)}}catch{}
+  $previous=$creditState.state-in @('cached','error') -or $script:status.restored -or $script:status.queryOk-ne $true -or $creditState.queryOk-ne $true -or !$at -or $now-[long]$credits.observedAt-ge 1800000
+  $line=$(if($previous){'上次预付余额：'}else{'预付余额：'})+(Format-WidgetMoney $credits.amountMinor $credits.currency)
+  $line+='（'+$(if($at){$at+' 读取'}else{'读取时间未知'})+'）'
+  if($creditState.state-eq 'error'){$line+=' · 余额刷新失败：'+$(if($creditState.error){[string]$creditState.error}else{'暂时无法读取'})+' · '+$retryHint}
+  elseif($previous){$line+=' · 缓存'}
+  return $line
+}
+
 # --- refresh, sign in, sign out ------------------------------------------------
 
 function Start-WidgetBrowserHelper([ValidateSet('login','logout')][string]$Mode,[string]$OutFile){
@@ -226,9 +245,11 @@ function Get-WidgetClaudeDetailLines([long]$NowSeconds){
       $lines+=$line;continue
     }
     $detail=if($window.resetsAt -and [long]$window.resetsAt-gt 0){Format-ResetTime ([long]$window.resetsAt) $NowSeconds}else{'未提供重置时间'}
-    $lines+=([string]$window.label+'：剩余 '+([double]$window.remaining).ToString('0.#')+'%，'+$detail)
+    $expired=$window.resetsAt -and [long]$window.resetsAt-gt 0 -and [long]$window.resetsAt-le $NowSeconds
+    $lines+=([string]$window.label+$(if($expired){'：上次剩余 '}else{'：剩余 '})+([double]$window.remaining).ToString('0.#')+'%，'+$detail)
   }
-  if($script:status.credits){$lines+=('预付余额：'+(Format-WidgetMoney $script:status.credits.amountMinor $script:status.credits.currency))}
+  $creditLine=Get-WidgetCreditsDetailLine
+  if($creditLine){$lines+=$creditLine}
   $weekly=@(Get-WidgetQuotaWindows|Where-Object{$_.kind-eq 'weekly'})[0]
   $pace=Get-WidgetWeeklyPaceText $weekly $NowSeconds
   if($pace){$lines+=$pace}

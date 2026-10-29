@@ -344,7 +344,7 @@ public sealed class ClaudeNiangLoginForm : Form {
       if (!session || signedIn) return;
       signedIn = true;
       pollTimer.Stop();
-      hint.Text = "✓ 已登录。窗口马上关闭，Claude 娘会刷新额度。";
+      hint.Text = "✓ 已检测到登录。关闭后点击角色或 ↻ 手动读取额度。";
       closeTimer.Start();
     } catch (Exception) {
     } finally {

@@ -28,13 +28,18 @@ function ConvertTo-WidgetQuoteRows($Value) {
   foreach($row in $rows){$row}
 }
 
+function Assert-WidgetQuoteLimits([int]$Count=0,[long]$Bytes=0) {
+  if($Bytes-gt 1MB){throw '语录文件超过 1 MB，请精简后重试。'}
+  if($Count-gt 5000){throw '语录条数超过 5000，请精简后重试。'}
+}
+
 function Read-WidgetQuoteFile([string]$Path) {
   # Bound the parse cost: the editor can write a large text dump, and this
   # file is re-read whenever a quote is displayed.
-  if(([IO.FileInfo]::new($Path)).Length-gt 1MB){throw '语录文件超过 1 MB，请精简后重试。'}
+  Assert-WidgetQuoteLimits -Bytes ([IO.FileInfo]::new($Path)).Length
   $json=[IO.File]::ReadAllText($Path,[Text.Encoding]::UTF8) | ConvertFrom-Json -ErrorAction Stop
   $rows=@(ConvertTo-WidgetQuoteRows $json)
-  if($rows.Count-gt 5000){throw '语录条数超过 5000，请精简后重试。'}
+  Assert-WidgetQuoteLimits -Count $rows.Count
   $rows
 }
 
@@ -74,10 +79,18 @@ function Get-WidgetQuote([string]$DataDir) {
 function Save-WidgetQuotes([string]$DataDir,$Quotes) {
   $rows=@(ConvertTo-WidgetQuoteRows $Quotes)
   if($rows.Count-eq 0){throw '请至少填写一条有效语录；每条最多 200 字，权重须大于 0 且不超过 1000。'}
-  $null=[IO.Directory]::CreateDirectory($DataDir)
+  Assert-WidgetQuoteLimits -Count $rows.Count
   $json=@{version=1;quotes=@($rows)} | ConvertTo-Json -Depth 5
+  # Include the UTF-8 BOM and validate before replacing the user's current file.
+  Assert-WidgetQuoteLimits -Bytes ([Text.Encoding]::UTF8.GetByteCount($json)+3)
+  $null=[IO.Directory]::CreateDirectory($DataDir)
   Write-WidgetFileAtomic (Join-Path $DataDir 'quotes.json') $json -Bom -Backup
-  Get-WidgetQuoteSettings $DataDir
+  $saved=Get-WidgetQuoteSettings $DataDir
+  if($saved.source-ne 'custom' -or $saved.error -or $saved.quotes.Count-ne $rows.Count){throw '语录保存后未能正确读回，请重新打开编辑器检查后重试。'}
+  for($i=0;$i-lt $rows.Count;$i++){
+    if($saved.quotes[$i].text-cne $rows[$i].text -or $saved.quotes[$i].weight-ne $rows[$i].weight){throw '语录文件在保存时发生变化，请重新打开编辑器后重试。'}
+  }
+  return $saved
 }
 
 function Reset-WidgetQuotes([string]$DataDir) {

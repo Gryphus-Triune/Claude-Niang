@@ -39,7 +39,7 @@ const preferred=(unchanged=null)=>{
 };
 let preference=preferred(),sessionToken=readRefreshRequest(sessionFile),requestToken=readJson(consumedFile)?.token??null;
 let status=null,refresh,heartbeat,explicitWanted=false,generation=0,lastActivity=Date.now();
-let lastAttempt=0,lastAttemptGeneration=-1,lastCreditsAt=0,lastBootstrapAt=0;
+let lastAttempt=0,lastAttemptGeneration=-1,lastCreditsAt=0,lastBootstrapAt=0,creditsRetryAt=0;
 let blockedUntil=Math.max(0,Number(readJson(backoffFile)?.until)||0);
 const orgCache=newOrganizationCache(),ipc=createPipeRefreshHandler(()=>{explicitWanted=true;setImmediate(tick);});
 const lock=await acquireWorkerLock(config.dataDir,parentPid,{onConnection:ipc.onConnection});
@@ -52,7 +52,7 @@ log('后台进程启动（'+pluginVersion+'）');
 // One log line per read: outcome and duration, never organization ids.
 function readSummary(snapshot,ms){
   const seconds=(ms/1000).toFixed(1)+' 秒';
-  if(snapshot.queryOk)return '读取完成：'+(snapshot.planLabel??'未知套餐')+'，'+(snapshot.windows?.length??0)+' 个额度窗口，用时 '+seconds;
+  if(snapshot.queryOk)return '读取完成：'+(snapshot.planLabel??'未知套餐')+'，'+(snapshot.windows?.length??0)+' 个额度窗口'+(snapshot.creditsStatus?.state==='error'?'，预付余额读取失败：'+snapshot.creditsStatus.errorCode:'')+'，用时 '+seconds;
   return '读取失败：'+(snapshot.errorCode??'UNKNOWN')+(snapshot.detail?'（'+snapshot.detail+'）':'')+'，用时 '+seconds;
 }
 
@@ -71,7 +71,7 @@ function syncContext(){
   if(nextSession===sessionToken && nextPreference===preference)return false;
   const changedSession=nextSession!==sessionToken;
   sessionToken=nextSession;preference=nextPreference;generation++;failurePause.reset();
-  Object.assign(orgCache,newOrganizationCache());lastCreditsAt=0;lastBootstrapAt=0;
+  Object.assign(orgCache,newOrganizationCache());lastCreditsAt=0;lastBootstrapAt=0;creditsRetryAt=0;
   if(changedSession){
     status=null;try{fs.unlinkSync(file('daily.json'));}catch{}
     // A rate limit belonged to the previous sign-in; a new sign-in or sign-out
@@ -112,15 +112,27 @@ refresh=createRefreshQueue(async()=>{
   const now=Date.now();lastAttempt=now;lastAttemptGeneration=generation;lastActivity=now;
   try{
     const sameOrg=!startedPreference || status?.selectedOrg===startedPreference;
-    const includeCredits=!sameOrg || now-lastCreditsAt>=CREDITS_EVERY;
+    const includeCredits=(!sameOrg || !lastCreditsAt || now-lastCreditsAt<0 || now-lastCreditsAt>=CREDITS_EVERY) && now>=creditsRetryAt;
     const allowBootstrap=now-lastBootstrapAt>=BOOTSTRAP_EVERY;
     const next=await readUsage(config,{preferredOrg:startedPreference,includeCredits,allowBootstrap,orgCache});
     log(readSummary(next,Date.now()-now));
     syncContext();
     if(startedGeneration!==generation){Object.assign(orgCache,newOrganizationCache());complete(batch,pipeBatch,status);return;}
-    if(includeCredits && next.queryOk)lastCreditsAt=now;
+    const sameAccount=!!next.accountKey && status?.accountKey===next.accountKey;
+    if(!sameAccount && next.accountKey){lastCreditsAt=0;creditsRetryAt=0;}
+    if(next.creditsStatus?.queryOk===true){lastCreditsAt=next.credits.observedAt;creditsRetryAt=0;}
+    else if(next.creditsStatus?.queryOk===false){
+      // Quota and prepaid balance have independent outcomes. A failed balance
+      // read never renews its 30-minute cache or blocks successful quota reads.
+      creditsRetryAt=Date.now()+(next.creditsStatus.retryAfterMs??(next.creditsStatus.errorCode==='RATE_LIMITED'?10*60000:30000));
+      next.creditsStatus.retryAt=creditsRetryAt;
+      if(sameAccount && status?.credits)next.credits=status.credits;
+    }else if(next.queryOk && next.extra?.enabled && sameAccount){
+      if(status?.credits)next.credits=status.credits;
+      const previous= status?.creditsStatus;
+      next.creditsStatus=previous?.state==='error'?{...previous}:{...previous,state:next.credits?'cached':'unavailable',queryOk:null};
+    }else if(next.queryOk && !next.extra?.enabled){lastCreditsAt=0;creditsRetryAt=0;}
     if(allowBootstrap && next.planKnown)lastBootstrapAt=now;
-    if(next.ok && !next.credits && status?.credits && status.accountKey===next.accountKey && !includeCredits)next.credits=status.credits;
     if(next.ok && next.queryOk){const today=updateDailyLedger(config.dataDir,next);if(today)next.today=today;}
     save(mergeUsageSnapshot(status,next));
     if(next.queryOk!==true)failureError=String(status?.error??'');
@@ -143,7 +155,9 @@ refresh=createRefreshQueue(async()=>{
 });
 const previous=readJson(statusFile);
 if(previous?.ok && previous.sessionEpoch===sessionToken && (!preference || previous.selectedOrg===preference)){
-  save({...previous,restored:true,queryOk:false,error:'上次保存的额度，点 ↻ 手动刷新',errorCode:null,checkedAt:Date.now()});
+  lastCreditsAt=Number.isFinite(previous.credits?.observedAt)?previous.credits.observedAt:0;
+  creditsRetryAt=Number.isFinite(previous.creditsStatus?.retryAt)?previous.creditsStatus.retryAt:0;
+  save({...previous,...(previous.credits && previous.creditsStatus?.state!=='error'?{creditsStatus:{...previous.creditsStatus,state:'cached',queryOk:null}}:{}),restored:true,queryOk:false,error:'上次保存的额度，点 ↻ 手动刷新',errorCode:null,checkedAt:Date.now()});
 }else{
   const signedOut=readJson(sessionFile)?.state==='signed-out';
   save({...pending(signedOut?'已退出登录，请先登录 Claude 账号':undefined,signedOut?'NOT_LOGGED_IN':'MANUAL'),...(signedOut?{loggedIn:false}:{})});

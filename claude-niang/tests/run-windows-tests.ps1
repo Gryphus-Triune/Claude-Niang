@@ -99,6 +99,102 @@ try{
     Assert (!$script:status.ok -and $script:status.windows.Count-eq 0) 'Old result visible after selection'
     Assert ($script:status.selectedOrg-eq $script:preferredOrg) 'Selection changed back'
   }
+  Case 'Quote save accepts 5000 rows and rejects overflow without replacing either saved copy' {
+    . (Join-Path $appDir 'runtime\quotes.ps1')
+    $data=Join-Path $scratch 'quote-count';$file=Join-Path $data 'quotes.json'
+    $null=Save-WidgetQuotes $data @('original quote')
+    $rows=@(1..5000|ForEach-Object{@{text=('quote '+$_);weight=1}})
+    $saved=Save-WidgetQuotes $data $rows
+    Assert ($saved.source-eq 'custom' -and !$saved.error -and $saved.quotes.Count-eq 5000) 'Valid boundary was not saved and read back'
+    $before=[IO.File]::ReadAllText($file);$backup=[IO.File]::ReadAllText($file+'.bak')
+    $failed=$false;try{$null=Save-WidgetQuotes $data ($rows+@{text='overflow';weight=1})}catch{$failed=$_.Exception.Message-like '*5000*'}
+    Assert $failed '5001 quotes were accepted'
+    Assert ([IO.File]::ReadAllText($file)-ceq $before) 'Rejected save replaced the current quotes'
+    Assert ([IO.File]::ReadAllText($file+'.bak')-ceq $backup) 'Rejected save replaced the backup'
+  }
+  Case 'Quote size checks include UTF-8 bytes and the BOM before saving' {
+    . (Join-Path $appDir 'runtime\quotes.ps1')
+    $data=Join-Path $scratch 'quote-size';$file=Join-Path $data 'quotes.json'
+    $null=Save-WidgetQuotes $data @('keep this quote');$before=[IO.File]::ReadAllText($file)
+    $rows=@(1..2000|ForEach-Object{@{text=(('字'*190)+$_);weight=1}})
+    $failed=$false;try{$null=Save-WidgetQuotes $data $rows}catch{$failed=$_.Exception.Message-like '*1 MB*'}
+    Assert $failed 'A multi-byte file over 1 MB was accepted'
+    Assert ([IO.File]::ReadAllText($file)-ceq $before) 'Oversized save replaced the previous list'
+    Assert (!(Test-Path -LiteralPath ($file+'.bak'))) 'Oversized save created a backup before validation'
+    $boundary=Join-Path $data 'boundary.json';$json='{"quotes":["boundary"]}'
+    [IO.File]::WriteAllText($boundary,($json+(' '*(1MB-3-$json.Length))),[Text.UTF8Encoding]::new($true))
+    Assert (@(Read-WidgetQuoteFile $boundary).Count-eq 1) 'Exactly 1 MB was rejected'
+    [IO.File]::AppendAllText($boundary,' ',[Text.UTF8Encoding]::new($false))
+    $failed=$false;try{$null=Read-WidgetQuoteFile $boundary}catch{$failed=$_.Exception.Message-like '*1 MB*'}
+    Assert $failed 'A file above the read limit was accepted'
+  }
+  Case 'Quote save never reports success after falling back to built-in quotes' {
+    . (Join-Path $appDir 'runtime\quotes.ps1')
+    function Get-WidgetQuoteSettings([string]$DataDir){return [pscustomobject]@{source='built-in';quotes=@('fallback');error='cannot read'}}
+    $failed=$false;try{$null=Save-WidgetQuotes (Join-Path $scratch 'quote-readback') @('new quote')}catch{$failed=$_.Exception.Message-like '*读回*'}
+    Assert $failed 'Read-back failure was reported as a successful save'
+  }
+  Case 'Expired tooltip percentages are explicitly historical' {
+    . (Import-Function (Join-Path $appDir 'runtime\widget-quota.ps1') 'Format-ResetTime')
+    $previous=$script:status;$nowSeconds=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    try{
+      $script:status=[pscustomobject]@{windows=@([pscustomobject]@{kind='session';label='5 小时';remaining=63;resetsAt=$nowSeconds},[pscustomobject]@{kind='weekly';label='每周';remaining=80;resetsAt=($nowSeconds+3600)})}
+      $lines=@(Get-WidgetClaudeDetailLines $nowSeconds)
+      Assert ($lines[0]-like '*上次剩余 63%*重置已到*') 'Expired amount still looks current'
+      Assert ($lines[1]-like '*：剩余 80%*' -and $lines[1]-notlike '*上次剩余*') 'Live quota was marked historical'
+    }finally{$script:status=$previous}
+  }
+  Case 'Credit tooltip uses its own timestamp and preserves independent errors' {
+    $previous=$script:status;$creditAt=1700000000000L
+    try{
+      $script:status=[pscustomobject]@{observedAt=($creditAt+1800000);credits=@{amountMinor=1234;currency='USD';observedAt=$creditAt};creditsStatus=@{state='cached';queryOk=$null}}
+      $line=Get-WidgetCreditsDetailLine
+      $expected=[DateTimeOffset]::FromUnixTimeMilliseconds($creditAt).ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)
+      Assert ($line.Contains($expected) -and $line-like '*上次预付余额*$12.34*缓存*') 'Credit tooltip uses the quota timestamp or hides caching'
+      $script:status.creditsStatus=@{state='error';queryOk=$false;error='余额网络错误'}
+      $line=Get-WidgetCreditsDetailLine
+      Assert ($line-like '*上次预付余额*$12.34*余额刷新失败*余额网络错误*') 'Old credit amount concealed the latest error'
+      $script:status.credits=$null
+      Assert ((Get-WidgetCreditsDetailLine)-eq '预付余额读取失败：余额网络错误 · 请手动刷新') 'Missing balance concealed the error'
+    }finally{$script:status=$previous}
+  }
+  Case 'Credit tooltip labels old snapshots and shows the independent retry deadline' {
+    $previous=$script:status;$creditNow=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    try{
+      $script:status=[pscustomobject]@{queryOk=$true;credits=@{amountMinor=500;currency='USD';observedAt=($creditNow-1800001)};creditsStatus=@{state='fresh';queryOk=$true}}
+      Assert ((Get-WidgetCreditsDetailLine)-like '上次预付余额*缓存') 'A balance older than 30 minutes still looked fresh'
+      $script:status.credits.Remove('observedAt')
+      Assert ((Get-WidgetCreditsDetailLine)-like '上次预付余额*读取时间未知*缓存') 'A legacy balance without its own timestamp looked fresh'
+      $script:status.creditsStatus=@{state='error';queryOk=$false;error='余额限流';retryAt=($creditNow+10800000)}
+      $expected=[DateTimeOffset]::FromUnixTimeMilliseconds($creditNow+10800000).ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss',[Globalization.CultureInfo]::InvariantCulture)
+      $line=Get-WidgetCreditsDetailLine
+      Assert ($line.Contains('请在 '+$expected+' 后手动刷新')) 'Balance retry deadline was not shown in local time'
+      $script:status.creditsStatus.retryAt=$creditNow-1
+      $line=Get-WidgetCreditsDetailLine
+      Assert ($line-like '*请手动刷新' -and $line-notlike '*请在*') 'An elapsed retry deadline still asked the user to wait'
+    }finally{$script:status=$previous}
+  }
+  Case 'A failed refresh remains visible when quota was restored from disk' {
+    Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
+    . (Join-Path $appDir 'runtime\widget-quota.ps1')
+    function Update-BubbleTooltip {}
+    $previous=@{dataDir=$script:dataDir;status=$script:status;preferredOrg=$script:preferredOrg;ui=$script:ui;quotaPage=$script:quotaPage;statusStamp=$script:statusStamp}
+    try{
+      $script:dataDir=Join-Path $scratch 'restored-display';$null=[IO.Directory]::CreateDirectory($script:dataDir)
+      $script:preferredOrg=$null;$script:quotaPage=0;$script:statusStamp=0;$script:quotaRenderKey=$null;$script:ui=@{}
+      foreach($prefix in @('Short','Week')){
+        foreach($suffix in @('Label','Used','Left','Reset')){$script:ui[$prefix+$suffix]=[Windows.Controls.TextBlock]::new()}
+        $script:ui[$prefix+'Row']=[Windows.Controls.Border]::new();$script:ui[$prefix+'Bar']=[Windows.Controls.Border]::new()
+      }
+      $script:ui.Status=[Windows.Controls.TextBlock]::new();$script:ui.Header=[Windows.Controls.TextBlock]::new();$script:ui.LiveDot=[Windows.Shapes.Ellipse]::new()
+      Write-WidgetJson (Join-Path $script:dataDir 'status.json') @{ok=$true;queryOk=$false;restored=$true;observedAt=[DateTimeOffset]::UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds();error='网络暂时不可用';errorCode='NETWORK';windows=@()}
+      Update-Quota
+      Assert ($script:ui.Status.Text-like '刷新未成功：网络暂时不可用*上次*') 'Restored flag hid the current refresh failure'
+      Write-WidgetJson (Join-Path $script:dataDir 'status.json') @{ok=$true;queryOk=$false;restored=$true;observedAt=[DateTimeOffset]::UtcNow.AddMinutes(-1).ToUnixTimeMilliseconds();error='上次保存的额度，点 ↻ 手动刷新';errorCode=$null;windows=@()}
+      $script:statusStamp=0;Update-Quota
+      Assert ($script:ui.Status.Text-like '上次读取于*手动刷新' -and $script:ui.Status.Text-notlike '*刷新未成功*') 'Ordinary startup restore was displayed as a failed refresh'
+    }finally{foreach($key in $previous.Keys){Set-Variable -Name $key -Scope Script -Value $previous[$key]};$script:quotaRenderKey=$null;$script:quotaRenderStatus=$null}
+  }
   Case 'Settings save removes retired refresh and time-of-day settings' {
     . (Import-Function (Join-Path $appDir 'runtime\widget-settings.ps1') 'Save-Settings')
     Save-Settings;$saved=Read-WidgetJsonFile $script:settingsFile
