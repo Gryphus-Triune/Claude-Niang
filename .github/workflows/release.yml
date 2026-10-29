@@ -1,35 +1,35 @@
 name: Release
-# Pushing v1.3.2 or v1.3.2-repack.1 tests the matching code, builds the package
-# and publishes a GitHub release with its checksum and desktop extension.
-# The release notes are that version's section of CHANGELOG.md.
+# One program version, one exact tag. Dispatch from main; do not pre-create tags.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Version tag, for example v1.3.2-repack.1'
+        description: 'Exact program version tag, for example v1.3.4'
         required: true
         type: string
 permissions:
   contents: write
+concurrency:
+  group: claude-niang-release
+  cancel-in-progress: false
 jobs:
   release:
     runs-on: windows-latest
     env:
-      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Tag matches package version
+      - name: Validate source and version metadata
         shell: powershell
         run: |
-          $version=(Get-Content claude-niang/package.json -Raw | ConvertFrom-Json).version
-          $tag=$env:RELEASE_TAG
-          $pattern='^v'+[regex]::Escape($version)+'(?:-repack\.[1-9][0-9]*)?$'
-          if($tag -cnotmatch $pattern){throw "Tag $tag does not match package.json version $version"}
+          if($env:GITHUB_EVENT_NAME -ne 'workflow_dispatch' -or $env:GITHUB_REF -ne 'refs/heads/main'){throw 'Dispatch this workflow from main'}
+          node .\tools\release.mjs --source . --check-release --tag $env:RELEASE_TAG
+          if($LASTEXITCODE -ne 0){throw 'Release metadata validation failed'}
       - name: Node tests
         working-directory: claude-niang
         run: npm test
@@ -37,40 +37,29 @@ jobs:
         working-directory: claude-niang
         shell: powershell
         run: npm run test:windows
-      - name: Build release package
-        shell: powershell
-        run: .\build-release.ps1
-      - name: Prepare assets and notes
+      - name: Build and verify the three release assets
         shell: powershell
         run: |
+          $out=Join-Path $env:RUNNER_TEMP ('claude-niang-release-'+$env:GITHUB_RUN_ID+'-'+$env:GITHUB_RUN_ATTEMPT)
+          .\build-release.ps1 -OutDir $out
+          if($LASTEXITCODE -ne 0){throw 'Release build failed'}
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip=Get-ChildItem dist -Filter '*.zip' | Select-Object -First 1
-          $archive=[IO.Compression.ZipFile]::OpenRead($zip.FullName)
+          $zip=Join-Path $out ('claude-niang-'+$env:RELEASE_TAG+'-windows.zip')
+          $archive=[IO.Compression.ZipFile]::OpenRead($zip)
           try{
-            $entry=$archive.Entries | Where-Object { $_.FullName -like '*/claude-niang-usage.mcpb' } | Select-Object -First 1
-            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,(Join-Path $PWD 'dist\claude-niang-usage.mcpb'),$true)
+            $entries=@($archive.Entries | Where-Object { $_.FullName -like '*/claude-niang-usage.mcpb' })
+            if($entries.Count -ne 1 -or $entries[0].Length -le 0){throw 'Release ZIP must contain exactly one desktop extension'}
+            $stream=$entries[0].Open();$sha=[Security.Cryptography.SHA256]::Create()
+            try{$digest=([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
+            finally{$stream.Dispose();$sha.Dispose()}
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entries[0],(Join-Path $out 'claude-niang-usage.mcpb'),$false)
           }finally{$archive.Dispose()}
-          $version=$env:RELEASE_TAG.Substring(1)
-          $lines=Get-Content CHANGELOG.md -Encoding UTF8
-          $start=[Array]::FindIndex($lines,[Predicate[string]]{param($line)$line -like "## $version *"})
-          if($start -lt 0){throw "CHANGELOG.md has no section for $version"}
-          $end=[Array]::FindIndex($lines,$start+1,[Predicate[string]]{param($line)$line -like '## *'})
-          if($end -lt 0){$end=$lines.Count}
-          $notes=($lines[($start+1)..($end-1)] -join "`n").Trim()
-          [IO.File]::WriteAllText((Join-Path $PWD 'release-notes.md'),$notes+"`n",[Text.UTF8Encoding]::new($false))
-      - name: Publish release
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('RELEASE_DIR='+$out) -Encoding UTF8
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('MCPB_SHA256='+$digest) -Encoding UTF8
+      - name: Create or resume owned draft, verify uploads, then publish
         shell: powershell
         env:
-          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          if($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch'){
-            git tag -- $env:RELEASE_TAG $env:GITHUB_SHA
-            if($LASTEXITCODE -ne 0){throw 'Could not create the release tag'}
-            git push origin "refs/tags/$env:RELEASE_TAG"
-            if($LASTEXITCODE -ne 0){throw 'Could not push the release tag; it may already exist'}
-          }
-          $assets=@(Get-ChildItem dist -File | ForEach-Object { $_.FullName })
-          # Windows PowerShell may decode workflow scripts using a legacy code page.
-          $title='Claude '+[char]0x5A18+' '+$env:RELEASE_TAG+' '+[char]0x00B7+' Windows'
-          gh release create $env:RELEASE_TAG @assets --title $title --notes-file release-notes.md --verify-tag --latest
-          if($LASTEXITCODE -ne 0){throw 'Could not publish the release'}
+          node .\tools\release.mjs --source . --publish --tag $env:RELEASE_TAG --assets $env:RELEASE_DIR
+          if($LASTEXITCODE -ne 0){throw 'Release was not completed; inspect the error before retrying'}
