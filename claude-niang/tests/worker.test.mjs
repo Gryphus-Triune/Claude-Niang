@@ -96,6 +96,52 @@ test('simultaneous manual refreshes share one read; MCP exposes structured cache
   assert.equal(mcp[0].result.serverInfo.version,pluginVersion);assert.equal(mcp[2].result.structuredContent.refreshMode,'manual');
   assert.equal(mcp[2].result.isError,false);assert.match(mcp[2].result.content[0].text,/Max 20x/);assert.equal(s.count(),1);
 });
+
+test('balance failures keep the old amount, back off independently and retry only on a later manual refresh',async t=>{
+  const s=setup(t),argsFile=path.join(s.root,'helper-args.json');s.env.FAKE_ARGS_FILE=argsFile;
+  atomicJson(s.bundleFile,fx.bundle({credits:{amount:725,currency:'USD'}}));
+  let worker=await start(s);const first=await ask(s);
+  assert.equal(first.credits.amountMinor,725);assert.equal(first.creditsStatus.state,'fresh');
+  await stop(worker);
+  // Simulate the balance cache aging without waiting thirty minutes.
+  const oldAt=Date.now()-31*60000;
+  atomicJson(path.join(s.dataDir,'status.json'),{...first,credits:{...first.credits,observedAt:oldAt}});
+  const limited=fx.bundle();limited.requests.credits=fx.request('c',429,{error:'rate'},{retryAfter:'600'});
+  atomicJson(s.bundleFile,limited);worker=await start(s);
+  const failed=await ask(s);
+  assert.equal(failed.ok,true);assert.equal(failed.queryOk,true);assert.equal(failed.credits.amountMinor,725);assert.equal(failed.credits.observedAt,oldAt);
+  assert.equal(failed.creditsStatus.state,'error');assert.equal(failed.creditsStatus.errorCode,'RATE_LIMITED');assert.ok(failed.creditsStatus.retryAt>Date.now()+590000);
+  assert.equal(fs.existsSync(path.join(s.dataDir,'quota-backoff.json')),false,'balance throttling must not block quota');
+  assert.ok(read(argsFile).includes('-IncludeCredits'));
+  await ask(s);assert.equal(s.count(),2,'the fifteen-second quota deduplication still applies');
+  await wait(1100);assert.equal(s.count(),2,'balance failures must not trigger automatic requests');
+  await stop(worker);
+  atomicJson(s.bundleFile,fx.bundle());worker=await start(s);
+  const duringPause=await ask(s);
+  assert.equal(duringPause.queryOk,true);assert.equal(duringPause.credits.observedAt,oldAt);assert.equal(duringPause.creditsStatus.errorCode,'RATE_LIMITED');
+  assert.equal(read(argsFile).includes('-IncludeCredits'),false,'balance pause must survive worker restart');
+  await stop(worker);
+  atomicJson(path.join(s.dataDir,'status.json'),{...duringPause,creditsStatus:{...duringPause.creditsStatus,retryAt:Date.now()-1}});
+  atomicJson(s.bundleFile,fx.bundle({credits:{amount:900,currency:'USD'}}));worker=await start(s);
+  const recovered=await ask(s);
+  assert.ok(read(argsFile).includes('-IncludeCredits'),'a failure must not renew the thirty-minute success cache');
+  assert.equal(recovered.credits.amountMinor,900);assert.ok(recovered.credits.observedAt>oldAt);assert.equal(recovered.creditsStatus.state,'fresh');assert.equal(recovered.creditsStatus.error,undefined);
+  await stop(worker);
+  atomicJson(s.bundleFile,fx.bundle());await start(s);
+  const cached=await ask(s);
+  assert.equal(read(argsFile).includes('-IncludeCredits'),false);assert.equal(cached.creditsStatus.state,'cached');assert.equal(cached.credits.observedAt,recovered.credits.observedAt);
+});
+
+test('balance failures never carry an amount into a different organization or new sign-in',async t=>{
+  const s=setup(t),good=fx.bundle({credits:{amount:725,currency:'USD'}}),bad=fx.bundle({selected:fx.ORG_TEAM});
+  bad.requests.credits=fx.request('c',500,{error:'server'});
+  atomicJson(s.bundleFile,{...good,byOrganization:{[fx.ORG_MAX]:good,[fx.ORG_TEAM]:bad}});
+  await start(s);assert.equal((await ask(s)).credits.amountMinor,725);
+  s.select(fx.ORG_TEAM);const changed=await ask(s);
+  assert.equal(changed.queryOk,true);assert.equal(changed.credits,null);assert.equal(changed.creditsStatus.state,'error');
+  s.session('signed-in');await until(()=>s.status()?.errorCode==='MANUAL');
+  const signedIn=await ask(s);assert.equal(signedIn.credits,null);assert.equal(signedIn.creditsStatus.state,'error');
+});
 test('organization selection bypasses same-context debounce and returns B immediately',async t=>{
   const s=setup(t);await start(s);assert.equal((await ask(s)).selectedOrg,fx.ORG_MAX);
   s.select(fx.ORG_TEAM);s.click();const second=await ask(s);

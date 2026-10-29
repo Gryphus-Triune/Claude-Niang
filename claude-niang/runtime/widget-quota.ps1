@@ -8,7 +8,7 @@ function Reset-Label($seconds){
   $d=[Math]::Floor($minutes/1440);$h=[Math]::Floor(($minutes%1440)/60);if($h-eq 0){return "$d 天后重置"};return "$d 天 $h 小时后重置"
 }
 function Format-ResetTime([long]$timestamp,[long]$now,[TimeZoneInfo]$timeZone=[TimeZoneInfo]::Local){
-  if($timestamp-le $now){return '重置已到，等待更新'}
+  if($timestamp-le $now){return '重置已到，等待手动刷新'}
   $reset=[TimeZoneInfo]::ConvertTime([DateTimeOffset]::FromUnixTimeSeconds($timestamp),$timeZone)
   $today=[TimeZoneInfo]::ConvertTime([DateTimeOffset]::FromUnixTimeSeconds($now),$timeZone).Date
   $day=if($reset.Date-eq $today){'今日'}elseif($reset.Date-eq $today.AddDays(1)){'明日'}else{$reset.ToString('MM-dd')}
@@ -92,7 +92,7 @@ function Update-Quota {
       $script:ui[$prefix+'Used'].Text=if($hasShare){'已用 '+([double]$q.used).ToString('0.#')+'%'}else{'已用 '+(Format-WidgetMoney $q.usedMinor $q.currency)}
       $script:ui[$prefix+'Left'].Text=if($hasShare){([double]$q.remaining).ToString('0.#')+'%'}else{Format-WidgetMoney $q.usedMinor $q.currency}
       $script:ui[$prefix+'Reset'].Text='已用 '+(Format-WidgetMoney $q.usedMinor $q.currency)+$(if($null-ne $q.limitMinor){' / '+(Format-WidgetMoney $q.limitMinor $q.currency)}else{''})
-      if($script:status.credits){$script:ui[$prefix+'Reset'].ToolTip='预付余额 '+(Format-WidgetMoney $script:status.credits.amountMinor $script:status.credits.currency)}
+      $script:ui[$prefix+'Reset'].ToolTip=Get-WidgetCreditsDetailLine
       $script:ui[$prefix+'Bar'].Width=if($hasShare){184*[double]$q.remaining/100}else{0}
     }else{
       $hasReset=$null-ne $q.resetsAt -and [double]$q.resetsAt-gt 0
@@ -115,8 +115,8 @@ function Update-Quota {
   elseif(!$script:status.ok){$script:ui.Status.Text=[string]$script:status.error;$dot='#D9A441'}
   else{
     $at=[DateTimeOffset]::FromUnixTimeMilliseconds([long]$script:status.observedAt).ToLocalTime().ToString('HH:mm:ss')
-    if($script:status.restored){$script:ui.Status.Text="上次读取于 $at · 点 ↻ 手动刷新";$dot='#D9A441'}
-    elseif($script:status.error){$script:ui.Status.Text="刷新未成功：$($script:status.error) · 上次 $at";$dot='#D9A441'}
+    if($script:status.error -and (!$script:status.restored -or $script:status.errorCode)){$script:ui.Status.Text="刷新未成功：$($script:status.error) · 上次 $at";$dot='#D9A441'}
+    elseif($script:status.restored){$script:ui.Status.Text="上次读取于 $at · 点 ↻ 手动刷新";$dot='#D9A441'}
     elseif($age-gt $stale){$mins=[Math]::Floor($age/60);$script:ui.Status.Text="$mins 分钟前的额度 · 点击 ↻ 刷新";$dot='#D9A441'}
     else{$script:ui.Status.Text="$at 更新 · 仅手动刷新"}
   }

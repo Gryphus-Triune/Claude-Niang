@@ -6,6 +6,7 @@ import path from 'node:path';
 import {EventEmitter} from 'node:events';
 import {normalizeClaudeBundle,normalizeUsage,classifyRequest,resetSeconds,runBrowserFetch,browserArguments,readUsage,chooseOrganization} from '../runtime/claude-usage.mjs';
 import {identifyClaudePlan} from '../runtime/plan.mjs';
+import {describe} from '../runtime/mcp.mjs';
 import * as fx from './fixtures/bundles.mjs';
 
 const NOW=Date.parse('2026-10-26T06:00:00Z');
@@ -31,6 +32,37 @@ test('new limits array with a scoped Fable window and spend object',()=>{
   assert.equal(s.ok,true);
   assert.deepEqual(s.windows.map(w=>[w.label,w.used,w.remaining]),[['5 小时',12,88],['每周',40,60],['每周 · Fable',55,45],['额外用量',25,75]]);
   assert.equal(s.extra.limitMinor,5000);assert.equal(s.extra.usedMinor,1250);
+});
+
+test('prepaid balance has its own observation time and failures do not hide successful quota',()=>{
+  const good=normalizeClaudeBundle(fx.bundle({credits:{amount:725,currency:'USD'}}),{now:NOW,creditsRequested:true});
+  assert.deepEqual(good.credits,{amountMinor:725,currency:'USD',observedAt:NOW});
+  assert.equal(good.creditsStatus.queryOk,true);assert.equal(good.creditsStatus.state,'fresh');
+  for(const [status,body,code] of [[429,{error:'rate'},'RATE_LIMITED'],[500,{error:'server'},'SERVER'],[404,{},'INVALID'],[403,{},'CREDITS_FORBIDDEN'],[200,{unexpected:true},'INVALID']]){
+    const b=fx.bundle();b.requests.credits=fx.request('c',status,body,{retryAfter:'120'});
+    const result=normalizeClaudeBundle(b,{now:NOW,creditsRequested:true});
+    assert.equal(result.ok,true);assert.equal(result.queryOk,true);assert.equal(result.errorCode,undefined);
+    assert.equal(result.credits,null);assert.equal(result.creditsStatus.errorCode,code);assert.equal(result.creditsStatus.checkedAt,NOW);
+    if(status===429)assert.equal(result.creditsStatus.retryAfterMs,120000);
+  }
+  const unrequested=normalizeClaudeBundle(fx.bundle(),{now:NOW});
+  assert.equal(unrequested.creditsStatus.state,'unavailable');assert.equal(unrequested.creditsStatus.error,undefined);
+  const missing=normalizeClaudeBundle(fx.bundle(),{now:NOW,creditsRequested:true});
+  assert.equal(missing.queryOk,true);assert.equal(missing.creditsStatus.state,'error');
+  const free=normalizeClaudeBundle(fx.bundle({usage:fx.usageFree}),{now:NOW,creditsRequested:true});
+  assert.equal(free.queryOk,true);assert.equal(free.creditsStatus,null);
+});
+
+test('MCP describes cached prepaid balance with its own time and independent error',()=>{
+  const fresh=normalizeClaudeBundle(fx.bundle({credits:{amount:725,currency:'USD'}}),{now:NOW});
+  const oldAt=NOW-45*60000;
+  const cached={...fresh,credits:{...fresh.credits,observedAt:oldAt},creditsStatus:{state:'error',queryOk:false,checkedAt:NOW,errorCode:'SERVER',error:'余额服务暂时异常',retryAt:NOW+30000}};
+  const result=describe(cached,NOW);
+  assert.equal(result.data.queryOk,true);assert.equal(result.data.creditsStatus.state,'error');
+  assert.equal(result.data.creditsStatus.observedAt,new Date(oldAt).toISOString());
+  assert.equal(result.data.creditsStatus.ageMs,45*60000);assert.match(result.text,/上次预付余额/);assert.match(result.text,/余额读取时间/);assert.match(result.text,/余额服务暂时异常/);
+  const legacy=describe({...fresh,credits:{amountMinor:725,currency:'USD'}},NOW);
+  assert.equal(legacy.data.creditsStatus.observedAt,null);assert.equal(legacy.data.creditsStatus.state,'cached');assert.match(legacy.text,/余额读取时间：未知/);
 });
 
 test('Free plan answers with empty windows instead of an error',()=>{

@@ -24,7 +24,7 @@
   $lines=$editor.FindName('Lines');$feedback=$editor.FindName('Feedback')
   $current=Get-WidgetQuoteSettings $script:dataDir
   $lines.Text=($current.quotes|ForEach-Object{if($_.weight-eq 1){$_.text}else{([string]$_.weight)+' | '+$_.text}})-join [Environment]::NewLine
-  $feedback.Text=if($current.error){$current.error}else{'每条最多 200 字。语录在你的电脑上保存。'}
+  $feedback.Text=if($current.error){$current.error}else{'每条最多 200 字，最多 5000 条，保存文件不超过 1 MB。语录在你的电脑上保存。'}
   $editor.FindName('Save').Add_Click({
     try{
       $rows=@(foreach($line in ($script:quoteEditor.FindName('Lines').Text -split '\r?\n')){
@@ -33,6 +33,7 @@
         else{@{text=$text;weight=1}}
       })
       $saved=Save-WidgetQuotes $script:dataDir $rows
+      if($saved.source-ne 'custom' -or $saved.error){throw '自定义语录没有保存成功，请检查后重试。'}
       $script:quoteEditor.FindName('Feedback').Text="已保存 $($saved.quotes.Count) 句。下一次显示语录时就会使用。"
     }catch{$script:quoteEditor.FindName('Feedback').Text=$_.Exception.Message}
   })

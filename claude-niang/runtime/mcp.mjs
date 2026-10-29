@@ -5,6 +5,7 @@
 // only reads the quota snapshot that the Claude娘 widget keeps on this
 // computer, and can ask the running widget for a fresh read. It never creates
 // chats or calls a model, and it never sees cookies or tokens.
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -59,7 +60,18 @@ export function describe(snapshot,now=Date.now()) {
     lines.push('· '+(w.label??'额度')+'：'+(expired?'上次已用 '+w.used+'%，已到重置时间，等待刷新':'剩余 '+w.remaining+'%（已用 '+w.used+'%）')+
       (w.resetsAt && !expired?'，'+localTime(w.resetsAt,now)+' 重置（'+until(w.resetsAt,now)+'）':w.resetsAt?'':'，未提供重置时间'));
   }
-  if(snapshot.credits)lines.push('· 预付余额：'+formatMoney(snapshot.credits.amountMinor,snapshot.credits.currency));
+  const creditsAt=Number.isFinite(snapshot.credits?.observedAt)?snapshot.credits.observedAt:null;
+  const creditsAgeMs=creditsAt===null?null:Math.max(0,now-creditsAt);
+  const creditsState=snapshot.creditsStatus?.state==='error'?'error':!snapshot.credits?'unavailable':
+    snapshot.restored || snapshot.queryOk!==true || snapshot.creditsStatus?.queryOk!==true || creditsAgeMs===null || creditsAgeMs>=30*60000?'cached':'fresh';
+  if(snapshot.credits){
+    lines.push('· '+(creditsState==='fresh'?'预付余额':'上次预付余额')+'：'+formatMoney(snapshot.credits.amountMinor,snapshot.credits.currency)+
+      '（余额读取时间：'+(creditsAt===null?'未知':new Date(creditsAt).toLocaleString('zh-CN',{hour12:false}))+(creditsState==='fresh'?'':'，缓存数据')+'）');
+  }
+  if(snapshot.creditsStatus?.error){
+    const retryAt=snapshot.creditsStatus.retryAt;
+    lines.push('余额提示：'+snapshot.creditsStatus.error+(Number.isFinite(retryAt) && retryAt>now?'；请在 '+new Date(retryAt).toLocaleString('zh-CN',{hour12:false})+' 后手动刷新':'；请手动刷新')+(snapshot.queryOk===true?'（额度已成功读取）':''));
+  }else if(snapshot.extra?.enabled && !snapshot.credits)lines.push('· 预付余额：尚未读取');
   if(todayValid(snapshot,now) && typeof snapshot.today.weeklyUsed==='number')lines.push('· 今日观测到的周额度增量约：+'+snapshot.today.weeklyUsed+' 个百分点（从 '+new Date(snapshot.today.since).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false})+' 起统计）');
   if(!windows.length)lines.push(snapshot.error??'没有额度窗口数据。');
   else if(snapshot.error)lines.push('提示：'+snapshot.error);
@@ -77,6 +89,7 @@ export function describe(snapshot,now=Date.now()) {
       resetsAt:w.resetsAt?new Date(w.resetsAt*1000).toISOString():null,resetsAtLocal:w.resetsAt?localTime(w.resetsAt,now):null,
       ...(w.kind==='extra'?{usedAmount:formatMoney(w.usedMinor,w.currency),limitAmount:w.limitMinor?formatMoney(w.limitMinor,w.currency):null}:{})})),
     credits:snapshot.credits?formatMoney(snapshot.credits.amountMinor,snapshot.credits.currency):null,
+    creditsStatus:{...snapshot.creditsStatus,state:creditsState,observedAt:creditsAt===null?null:new Date(creditsAt).toISOString(),ageMs:creditsAgeMs},
     todayWeeklyUsed:todayValid(snapshot,now)?snapshot.today.weeklyUsed:null,
     observedAt:snapshot.observedAt?new Date(snapshot.observedAt).toISOString():null,error:snapshot.error??null,errorCode:snapshot.errorCode??null};
   return {text:lines.join('\n'),data};
@@ -91,6 +104,27 @@ const tool={
   annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}
 };
 
+function protectSessionSnapshot(snapshot) {
+  let epoch=null,state=null,readable=true;
+  try{
+    const file=path.join(DATA_DIR,'session-reset.flag'),stat=fs.statSync(file,{bigint:true});
+    if(stat.size<=0n || stat.size>4096n)readable=false;
+    else{
+      const text=fs.readFileSync(file,'utf8');
+      // Match the token persisted by the worker's readRefreshRequest().
+      epoch=stat.mtimeNs.toString()+':'+text;
+      try{state=JSON.parse(text.replace(/^\uFEFF/,'')).state;readable=state==='signed-in' || state==='signed-out';}catch{readable=false;}
+    }
+  }catch(error){if(error.code!=='ENOENT')readable=false;}
+  // Older snapshots had no epoch. They remain usable only if no session change
+  // has ever been recorded; an existing or unreadable marker invalidates them.
+  if(readable && (snapshot?.sessionEpoch??null)===epoch)return snapshot;
+  const signedOut=state==='signed-out';
+  return {ok:false,queryOk:false,windows:[],loggedIn:!signedOut,
+    errorCode:signedOut?'NOT_LOGGED_IN':'SESSION_CHANGED',
+    error:signedOut?'已退出登录，请先登录 Claude 账号':'登录状态已改变，请手动刷新额度'};
+}
+
 async function callTool(args) {
   let snapshot=null,note='';
   if(args?.refresh===true){
@@ -98,6 +132,9 @@ async function callTool(args) {
     if(!snapshot)note='（挂件没有响应刷新请求，下面是上次保存的数据）\n';
   }
   if(!snapshot)snapshot=readJson(path.join(DATA_DIR,'status.json'));
+  const guarded=protectSessionSnapshot(snapshot);
+  if(guarded!==snapshot)note='';
+  snapshot=guarded;
   const preferred=readJson(path.join(DATA_DIR,'settings.json'))?.preferredOrg;
   if(typeof preferred==='string' && snapshot?.selectedOrg && preferred.toLowerCase()!==snapshot.selectedOrg.toLowerCase()){
     const row=snapshot.orgs?.find?.(org=>org.uuid?.toLowerCase()===preferred.toLowerCase());

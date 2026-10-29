@@ -4,8 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {EventEmitter} from 'node:events';
-import {normalizeClaudeBundle,normalizeUsage,readUsage,newOrganizationCache} from '../runtime/claude-usage.mjs';
-import {mergeUsageSnapshot,createFailurePause} from '../runtime/refresh-queue.mjs';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+import {normalizeClaudeBundle,normalizeUsage,readUsage,newOrganizationCache,classifyRequest} from '../runtime/claude-usage.mjs';
+import {mergeUsageSnapshot,createFailurePause,readRefreshRequest} from '../runtime/refresh-queue.mjs';
 import {advanceLedger,updateDailyLedger,localDay} from '../runtime/daily.mjs';
 import {describe,negotiateVersion} from '../runtime/mcp.mjs';
 import * as fx from './fixtures/bundles.mjs';
@@ -88,4 +90,65 @@ test('MCP answers a supported protocol version and falls back to its newest one'
   assert.equal(negotiateVersion('2025-03-26'),'2025-03-26');
   assert.equal(negotiateVersion('2099-01-01'),'2025-11-25');
   assert.equal(negotiateVersion(undefined),'2025-11-25');
+});
+
+function isolatedMcp(t){
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cn-mcp-session-'));
+  t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+  const marker=path.join(dir,'session-reset.flag'),status=path.join(dir,'status.json');
+  let sequence=0;
+  const snapshot={ok:true,queryOk:true,observedAt:Date.now(),planLabel:'Previous account',org:{name:'Old organization'},credits:{amountMinor:500,currency:'USD'},
+    windows:[{kind:'session',label:'5 小时',used:37,remaining:63,resetsAt:Math.floor(Date.now()/1000)+3600}]};
+  return {marker,snapshot,
+    save:value=>fs.writeFileSync(status,JSON.stringify(value)),
+    session:state=>fs.writeFileSync(marker,JSON.stringify({id:state+'-'+(++sequence),at:Date.now(),state})),
+    call(refresh){
+      const request={jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'get_claude_usage',arguments:{refresh}}};
+      const run=spawnSync(process.execPath,[fileURLToPath(new URL('../runtime/mcp.mjs',import.meta.url))],{
+        input:JSON.stringify(request)+'\n',encoding:'utf8',timeout:5000,windowsHide:true,
+        env:{...process.env,CLAUDE_NIANG_DATA_DIR:dir}});
+      assert.ifError(run.error);assert.equal(run.status,0,run.stderr);
+      return JSON.parse(run.stdout.trim()).result;
+    }
+  };
+}
+test('MCP rejects the previous session with the worker stopped, with or without a refresh request',t=>{
+  const s=isolatedMcp(t);
+  s.session('signed-in');s.save({...s.snapshot,sessionEpoch:readRefreshRequest(s.marker)});
+  for(const state of ['signed-in','signed-out']){
+    s.session(state);
+    for(const refresh of [false,true]){
+      const reply=s.call(refresh),data=reply.structuredContent;
+      assert.equal(reply.isError,true);assert.equal(data.ok,false);assert.equal(data.queryOk,false);assert.equal(data.freshness,'unavailable');
+      assert.deepEqual(data.windows,[]);assert.equal(data.credits,null);assert.equal(data.organization,null);
+      assert.equal(data.errorCode,state==='signed-out'?'NOT_LOGGED_IN':'SESSION_CHANGED');
+      assert.doesNotMatch(reply.content[0].text,/Previous account|Old organization|63%/);
+    }
+  }
+});
+test('MCP permits matching and legacy unmarked snapshots but rejects missing or unreadable session evidence',t=>{
+  const s=isolatedMcp(t);
+  s.save(s.snapshot);assert.equal(s.call(false).structuredContent.ok,true,'legacy snapshot without a session marker');
+  s.session('signed-in');assert.equal(s.call(false).structuredContent.ok,false,'legacy snapshot after a session change');
+  s.save({...s.snapshot,sessionEpoch:readRefreshRequest(s.marker)});
+  assert.equal(s.call(false).structuredContent.windows[0].remaining,63,'matching current session');
+  fs.unlinkSync(s.marker);assert.equal(s.call(false).structuredContent.ok,false,'recorded session marker was removed');
+  s.save(s.snapshot);fs.writeFileSync(s.marker,'');
+  assert.equal(s.call(false).structuredContent.ok,false,'empty in-progress session marker');
+  fs.writeFileSync(s.marker,'{"state":');s.save({...s.snapshot,sessionEpoch:readRefreshRequest(s.marker)});
+  assert.equal(s.call(false).structuredContent.ok,false,'matching token cannot validate a malformed marker');
+});
+test('Retry-After preserves long seconds and HTTP dates and bounds pathological waits',()=>{
+  const delay=value=>classifyRequest({status:429,retryAfter:value}).retryAfterMs;
+  assert.equal(delay('10800'),3*3600000);
+  assert.equal(delay('172800'),2*86400000);
+  assert.equal(delay(String(45*86400)),45*86400000);
+  const now=Date.now(),date=new Date(now+3*3600000).toUTCString(),wait=delay(date);
+  assert.ok(wait>=3*3600000-2000 && wait<=3*3600000,'HTTP-date three hours ahead');
+  const overflow=delay('9'.repeat(400));
+  assert.ok(Number.isSafeInteger(overflow) && overflow>45*86400000);
+  assert.ok(Number.isFinite(new Date(Date.now()+overflow).getTime()),'overflow delay remains a representable deadline');
+  assert.ok(Date.now()+overflow<253402300799999,'deadline also fits PowerShell/.NET dates');
+  assert.equal(delay('0'),30000);
+  assert.equal(delay('not a date'),null);assert.equal(delay(''),null);
 });

@@ -1,24 +1,22 @@
-# Claude 娘 · Claude 桌面端额度挂件
+<div align="center">
+  <img src="claude-niang/extension/icon.png" alt="Claude 娘" width="96">
+  <h1>Claude 娘</h1>
+  <p><strong>把 Claude 额度，放进桌面角色的气泡里。</strong></p>
+  <p>点一下看额度与重置时间，也可以换形象、写语录，让她跟着音乐跳动。</p>
+  <p>
+    <a href="https://github.com/Gryphus-Triune/Claude-Niang/releases/latest"><img src="https://img.shields.io/github/v/release/Gryphus-Triune/Claude-Niang?label=Release&amp;color=D97757" alt="最新发布版本"></a>
+    <a href="https://github.com/Gryphus-Triune/Claude-Niang/actions/workflows/ci.yml"><img src="https://github.com/Gryphus-Triune/Claude-Niang/actions/workflows/ci.yml/badge.svg?branch=main" alt="自动检查状态"></a>
+    <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4" alt="面向 Windows 10 / 11">
+  </p>
+  <p><a href="https://github.com/Gryphus-Triune/Claude-Niang/releases/latest"><strong>下载 Windows 完整包</strong></a> · <a href="#下载与安装">安装说明</a> · <a href="#在-claude-对话里问额度">对话扩展</a> · <a href="#常见问题">常见问题</a> · <a href="https://github.com/Gryphus-Triune/Claude-Niang/issues/new/choose">反馈问题</a></p>
+</div>
 
-<img src="claude-niang/extension/icon.png" alt="Claude 娘默认形象" width="144" align="right">
+<p align="center">
+  <a href="docs/screenshot.png"><img src="docs/screenshot.png" alt="Claude 娘原生界面：角色上方的气泡显示 5 小时、每周剩余额度和重置时间；图中为示例数据" width="378"></a>
+</p>
+<p align="center"><sub>原生界面预览，图中为示例数据。额度来自最近一次手动读取；点击图片可查看原图。</sub></p>
 
-在 Windows 上给 Claude 桌面端放一个小角色。点她查看剩余额度和重置时间，点气泡翻页或看语录；播放音乐时，还能让她戴上墨镜、跟着节拍跳动。
-
-**[下载 Windows 版](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest)** · [安装说明](#下载与安装) · [常见问题](#常见问题) · [反馈问题](https://github.com/Gryphus-Triune/Claude-Niang/issues/new/choose)
-
-- **手动读取额度**：由你点击查询，启动、恢复窗口、登录完成和自动语录都不会后台查询。
-- **看得见数据时间**：展示上次读取时间，过了重置时间会提示等待刷新。
-- **自己的桌面角色**：支持换形象、语录、点击音效和音乐律动。
-- **可选对话扩展**：在 Claude 对话里询问额度，或明确要求刷新。
-- **更容易排查**：挂件运行期间会尝试恢复意外退出的监督进程，并在本机保存诊断日志。
-
-适用于 Windows，需 Node.js 20 或更新及 WebView2。读取额度本身不调用模型，无需 API Key。**非 Anthropic 官方产品。**
-
-<br clear="right">
-
-<img src="docs/screenshot.png" alt="Claude 娘额度气泡的界面预览，使用示例数据" width="378">
-
-*程序原生界面预览，额度为示例数据；实际额度窗口由账号和组织提供的信息决定。*
+**由你决定何时读取。** 启动、恢复窗口、登录完成和自动语录都不会查询额度。读取本身不调用模型，无需 API Key；音乐只在本机分析，不保存也不上传。**非 Anthropic 官方产品。**
 
 ## 可以做什么
 
@@ -34,12 +32,21 @@ Free 或部分组织可能没有额度窗口；挂件无法提供接口没有返
 
 ## 下载与安装
 
-**当前程序版本：1.3.2**。
+**当前程序版本：1.3.3**。本版修复登录切换后的旧额度、余额缓存、语录保存和限流等待问题。[查看完整更新记录](CHANGELOG.md)
 
-1. 打开 **[最新版发布页](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest)**，在 Assets 中下载 `claude-niang-v版本号-windows.zip`。同名 `.sha256` 用于校验下载内容，普通安装不需要它；GitHub 自动生成的 `Source code` 归档供开发者使用。
+先准备好 **Claude 桌面端、Node.js LTS 和 WebView2**。安装器会检查依赖；挂件使用自己的登录窗口，与 Claude 桌面端的登录相互独立。
+
+| 你要做什么 | 选择哪个文件 |
+|---|---|
+| 首次安装或更新挂件 | **[claude-niang-v1.3.3-windows.zip](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest/download/claude-niang-v1.3.3-windows.zip)**，包含挂件和可选桌面扩展。 |
+| 已有挂件，只更新 Claude 对话扩展 | [claude-niang-usage.mcpb](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest/download/claude-niang-usage.mcpb)，也可在完整包的“Claude桌面扩展”文件夹找到。 |
+| 核对下载文件是否完整 | 同名 `.zip.sha256`，普通安装无需打开。 |
+| 阅读或参与开发 | 仓库源码或发布页的 `Source code`；这些归档不包含构建好的桌面扩展。 |
+
+1. 从 **[最新版发布页](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest)** 的 Assets 下载 Windows 完整包。
 2. **完整解压**到以后不会移动的文件夹，例如 `%LOCALAPPDATA%\Programs\Claude娘额度挂件`。不要在压缩包里直接运行。
 3. 双击 **安装Claude娘.cmd**，按提示检查依赖并在 Claude 娘自己的登录窗口中登录 claude.ai。安装不需要管理员权限。
-4. 打开 Claude 桌面端主窗口，点右下角的角色或 **↻**，读取第一次额度。
+4. 打开 Claude 桌面端主窗口，点右下角的角色或 **↻**。气泡出现读取时间和账号提供的额度窗口，就完成了。
 
 安装器会登记当前用户的开机自启；计划任务不可用时改用“启动”文件夹。安装后移动文件夹，请按下方的“搬家”步骤重新登记。
 
@@ -50,7 +57,7 @@ Free 或部分组织可能没有额度窗口；挂件无法提供接口没有返
 |---|---|
 | 系统 | 面向 Windows 10 / 11，提供 x64 和 ARM64 所需组件。macOS / Linux 不支持。 |
 | Claude | 已安装 Claude 桌面端。官网安装版和微软商店版均为适配目标。 |
-| Node.js | 20 或更新，建议安装 [Node.js 官网的 LTS 版](https://nodejs.org/)。安装器会在 PATH 和常见安装位置里查找。 |
+| Node.js | 当前程序最低接受 20；新安装建议使用 [Node.js 官网仍受支持的 LTS 版](https://nodejs.org/)。安装器会在 PATH 和常见安装位置里查找。 |
 | WebView2 | Microsoft Edge WebView2 运行时。缺少时安装器会给出[微软官方下载入口](https://developer.microsoft.com/microsoft-edge/webview2/)。 |
 | 账号 | 能登录 claude.ai 的账号。Free 或部分组织可能不提供额度窗口。 |
 
@@ -69,7 +76,7 @@ Windows 10、ARM64、微软商店版 Claude、多屏和混合 DPI 仍需更多�
 
 </details>
 
-**挂件的登录和 Claude 桌面端是分开的。**两边登录不同账号时，挂件显示的是自己登录的账号；有多个组织时，可以在右键菜单里切换。
+**挂件的登录和 Claude 桌面端是分开的。** 两边登录不同账号时，挂件显示的是自己登录的账号；有多个组织时，可以在右键菜单里切换。
 
 ## 日常使用
 
@@ -81,7 +88,9 @@ Windows 10、ARM64、微软商店版 Claude、多屏和混合 DPI 仍需更多�
 | 右键 → Claude 账号 → 切换组织 | 读取选定组织，切换时先隐藏旧组织的额度。 |
 | 鼠标停在气泡上 | 查看组织、时间、金额和完整说明。 |
 
-气泡会标出上次更新时间。断网或接口变化时保留上次成功的数据；已到重置时间但还没重新读取时，会提示等待刷新。当前界面与缓存仍可能保留上次读取的信息，请结合数据时间判断。
+气泡会标出上次更新时间。断网或接口变化时保留上次成功的数据，并显示本次失败原因；已到重置时间但还没重新读取时，旧数值会标为“上次”，等待手动刷新。退出或重新登录后，前一会话的额度不会作为当前数据返回。
+
+预付余额有独立的读取时间，成功后最多缓存 30 分钟。余额接口失败不影响额度显示：已有余额会保留并标为旧值，同时说明失败原因和下次可手动重试的时间。
 
 连续 3 次读取失败后暂停 30 秒，状态栏会提示剩余等待时间；暂停结束不会自动重试。读取成功、重新登录或切换组织后重新计数。低额度和重置提醒只在手动读取到新结果后判断，不会为了提醒去后台查询。
 
@@ -106,14 +115,14 @@ Windows 10、ARM64、微软商店版 Claude、多屏和混合 DPI 仍需更多�
 
 先安装并打开挂件，在挂件里登录并读取一次额度。然后双击完整发布包中的 `Claude桌面扩展\claude-niang-usage.mcpb`，在 Claude 桌面端里安装扩展。最新版发布页也提供单独的 `.mcpb`；它不能代替挂件本身。
 
-问“我还剩多少额度？”时，扩展读取本机保存的快照，并告诉你数据时间；明确说“刷新额度”时，才让正在运行的挂件重新读取。挂件未运行时，扩展会说明刷新未成功，并尽量给出上次保存的数据。
+问“我还剩多少额度？”时，扩展读取本机保存的快照，并告诉你数据时间；明确说“刷新额度”时，才让正在运行的挂件重新读取。挂件未运行时，会说明刷新未成功；只有仍属于当前登录会话的数据才会作为旧快照提供。登录状态已变化时，请打开挂件并手动刷新。
 
 扩展自身不会创建聊天或调用模型，也接触不到登录 Cookie。数据目录一般不用改；如果自定义了挂件数据位置，在扩展设置里选择对应的 `state` 文件夹。
 
 ## 换形象、语录、音效和音乐律动
 
 - **形象**：右键 → 更换形象 → 添加形象。建议透明背景的正方形 PNG，大头半身、角色撑满画布，1024～2048 像素；上限为边长 4096、文件 20 MB。
-- **语录**：右键 → 编辑我的语录，一行一句；也可以恢复内置语录，或在“自动语录”里定时显示。
+- **语录**：右键 → 编辑我的语录，一行一句，每句最多 200 字、最多 5000 条，保存文件不超过 1 MB。超限时保留原列表；也可以恢复内置语录，或在“自动语录”里定时显示。
 - **音效**：右键 → 声音与点击，可以导入最长 5 秒的 WAV，导入后会转成本地缓存。
 - **音乐律动**：右键 → 音乐律动。角色跟随电脑正在播放的声音跳动，两边出现音箱，窗口上方挂一个灯球，还可以把她拎起来甩出去。声音只在本机分析，不保存也不上传。
 - **墨镜**：音乐律动时默认形象会戴上墨镜；自行导入的形象默认不戴墨镜。
@@ -148,6 +157,8 @@ claude.ai 的网页接口不是公开 API，随时可能变化而失效。请遵
 | 内置浏览器组件检查失败 | 重新运行“安装Claude娘.cmd”；仍失败时检查 WebView2 运行时。 |
 | 提示“已连续失败 3 次” | 等待提示的秒数后再点 ↻，并检查网络、验证或登录状态。 |
 | 已限流 | 按提示等待后手动刷新，程序不会定时重试。 |
+| 额度更新了，余额仍是旧值 | 两者独立读取；查看余额自己的时间和错误提示。缓存或等待期结束后，再手动刷新。 |
+| 切换登录后，对话扩展提示会话已改变 | 打开挂件，用当前账号手动读取一次；更新挂件后也要重新安装新版 `.mcpb`。 |
 | 退出登录失败 | 先关闭已打开的登录窗口，或等当前查询结束后再试。 |
 | 安装失败 | 查看程序文件夹 `claude-niang` 内的 `install-log.txt`。 |
 | 旧版开机后出现空白 PowerShell 窗口 | 更新后双击一次“打开Claude娘.cmd”，重新登记隐藏启动。 |
