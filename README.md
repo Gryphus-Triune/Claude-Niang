@@ -4,11 +4,11 @@
   <p><strong>把 Claude 额度，放进桌面角色的气泡里。</strong></p>
   <p>点一下看额度与重置时间，也可以换形象、写语录，让她跟着音乐跳动。</p>
   <p>
-    <a href="https://github.com/Gryphus-Triune/Claude-Niang/releases/latest"><img src="https://img.shields.io/github/v/release/Gryphus-Triune/Claude-Niang?label=Release&amp;color=D97757" alt="最新发布版本"></a>
+    <a href="https://github.com/Gryphus-Triune/Claude-Niang/releases/tag/v1.3.3"><img src="https://img.shields.io/badge/Release-v1.3.3-D97757" alt="当前版本 1.3.3"></a>
     <a href="https://github.com/Gryphus-Triune/Claude-Niang/actions/workflows/ci.yml"><img src="https://github.com/Gryphus-Triune/Claude-Niang/actions/workflows/ci.yml/badge.svg?branch=main" alt="自动检查状态"></a>
     <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4" alt="面向 Windows 10 / 11">
   </p>
-  <p><a href="https://github.com/Gryphus-Triune/Claude-Niang/releases/latest"><strong>下载 Windows 完整包</strong></a> · <a href="#下载与安装">安装说明</a> · <a href="#在-claude-对话里问额度">对话扩展</a> · <a href="#常见问题">常见问题</a> · <a href="https://github.com/Gryphus-Triune/Claude-Niang/issues/new/choose">反馈问题</a></p>
+  <p><a href="https://github.com/Gryphus-Triune/Claude-Niang/releases/download/v1.3.3/claude-niang-v1.3.3-windows.zip"><strong>下载 Windows 完整包</strong></a> · <a href="#下载与安装">安装说明</a> · <a href="https://github.com/Gryphus-Triune/Claude-Niang/releases/tag/v1.3.3">版本更新</a> · <a href="#常见问题">常见问题</a> · <a href="https://github.com/Gryphus-Triune/Claude-Niang/issues/new/choose">反馈问题</a></p>
 </div>
 
 <p align="center">
@@ -32,18 +32,20 @@ Free 或部分组织可能没有额度窗口；挂件无法提供接口没有返
 
 ## 下载与安装
 
-**当前程序版本：1.3.3**。本版修复登录切换后的旧额度、余额缓存、语录保存和限流等待问题。[查看完整更新记录](CHANGELOG.md)
+**当前程序版本：1.3.3** · [版本说明](https://github.com/Gryphus-Triune/Claude-Niang/releases/tag/v1.3.3) · [完整更新记录](CHANGELOG.md)
+
+本版修复登录切换后的旧额度、余额缓存、语录保存和限流等待问题。首次使用请选择 Windows 完整包；对话扩展为可选项。
 
 先准备好 **Claude 桌面端、Node.js LTS 和 WebView2**。安装器会检查依赖；挂件使用自己的登录窗口，与 Claude 桌面端的登录相互独立。
 
 | 你要做什么 | 选择哪个文件 |
 |---|---|
-| 首次安装或更新挂件 | **[claude-niang-v1.3.3-windows.zip](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest/download/claude-niang-v1.3.3-windows.zip)**，包含挂件和可选桌面扩展。 |
-| 已有挂件，只更新 Claude 对话扩展 | [claude-niang-usage.mcpb](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest/download/claude-niang-usage.mcpb)，也可在完整包的“Claude桌面扩展”文件夹找到。 |
-| 核对下载文件是否完整 | 同名 `.zip.sha256`，普通安装无需打开。 |
+| 首次安装或更新挂件 | **[claude-niang-v1.3.3-windows.zip](https://github.com/Gryphus-Triune/Claude-Niang/releases/download/v1.3.3/claude-niang-v1.3.3-windows.zip)**，包含挂件和可选桌面扩展。 |
+| 已有挂件，只更新 Claude 对话扩展 | [claude-niang-usage.mcpb](https://github.com/Gryphus-Triune/Claude-Niang/releases/download/v1.3.3/claude-niang-usage.mcpb)，也可在完整包的“Claude桌面扩展”文件夹找到。[扩展安装说明](#在-claude-对话里问额度) |
+| 核对下载文件是否完整 | [SHA-256 校验文件](https://github.com/Gryphus-Triune/Claude-Niang/releases/download/v1.3.3/claude-niang-v1.3.3-windows.zip.sha256)，普通安装无需打开。 |
 | 阅读或参与开发 | 仓库源码或发布页的 `Source code`；这些归档不包含构建好的桌面扩展。 |
 
-1. 从 **[最新版发布页](https://github.com/Gryphus-Triune/Claude-Niang/releases/latest)** 的 Assets 下载 Windows 完整包。
+1. 点击上方 **Windows 完整包** 下载，或从 [1.3.3 发布页](https://github.com/Gryphus-Triune/Claude-Niang/releases/tag/v1.3.3) 的 Assets 选择同名 ZIP。
 2. **完整解压**到以后不会移动的文件夹，例如 `%LOCALAPPDATA%\Programs\Claude娘额度挂件`。不要在压缩包里直接运行。
 3. 双击 **安装Claude娘.cmd**，按提示检查依赖并在 Claude 娘自己的登录窗口中登录 claude.ai。安装不需要管理员权限。
 4. 打开 Claude 桌面端主窗口，点右下角的角色或 **↻**。气泡出现读取时间和账号提供的额度窗口，就完成了。

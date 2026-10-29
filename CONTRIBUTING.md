@@ -37,7 +37,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\build-release.ps1
 
 桌面扩展由构建生成，随发布 ZIP 和 Release 提供，不需要把生成的 `.mcpb` 放进仓库。新增文档或许可资源后，同步检查 `tools/release.mjs` 的白名单，确保发布 ZIP 中的 README 链接、图片与许可文件齐全。
 
-发布普通版本时，先更新 `claude-niang/package.json`、README 的当前版本和 CHANGELOG 中对应的章节，再从包含这些更改的提交创建 `vX.Y.Z` 标签。仅整理同一功能版本的源码和发布包时，可使用 `vX.Y.Z-repack.N` 标签，并在 CHANGELOG 中添加对应的 `X.Y.Z-repack.N` 章节。`.github/workflows/release.yml` 会核对版本、运行检查、打包并创建 Release。不要移动已经公开的版本标签；发布前确认标签指向预期的源码提交。
+## 发布正式版本
+
+一个程序版本只对应一个 `vX.Y.Z` 标签和一个 Release，不再使用 `repack`、预发布后缀或同版本的第二个发布记录。已经公开的标签和附件不能覆盖；后续修复应增加程序版本。
+
+1. 同步更新 `claude-niang/package.json`、`claude-niang/extension/manifest.json`、README 的 `**当前程序版本：X.Y.Z**`、版本徽章、版本说明与附件下载链接，以及 CHANGELOG 中唯一的 `## X.Y.Z` 章节，提交并合并到 `main`。下载链接须写明相同的 `vX.Y.Z` 标签和 ZIP 文件名，不使用 `latest/download` 搭配固定版本文件名。
+2. 在 [Release 工作流](https://github.com/Gryphus-Triune/Claude-Niang/actions/workflows/release.yml)选择 **Run workflow**，分支选 `main`，输入精确标签，例如 `v1.3.4`。不需要提前创建标签，也不需要另行上传附件；推送标签不会自动发布。
+3. 工作流先校验上述版本与发布说明，再完成 Node 测试、Windows 集成检查和干净打包，随后才创建标签和草稿 Release。最终附件严格为 Windows ZIP、该 ZIP 的 `.sha256` 和从同一 ZIP 提取的 `.mcpb`；本地校验和远端附件的名称、数量、大小及 SHA256 全部通过后才公开。
+
+工作流固定使用触发时 `main` 的提交，测试、构建和发布始终对应同一个 SHA；`main` 后续的正常提交不会改变本次发布源码。创建发布前及上传完成后都会核对标签仍指向该提交。已有标签指向其他提交、已有正式 Release，或出现不属于本流程的草稿时，工作流会停止，不会移动标签或覆盖发布记录。
+
+测试或构建失败时不会创建标签。若失败后留下了指向同一提交的标签或本流程草稿，请在原 Actions 运行页使用 **Re-run jobs**，继续发布同一个已测试提交；即使 `main` 已前进，也不需要新建标签或移动标签。只有标题、说明、提交标记均未改动的本流程草稿可以恢复；工作流仅复用该草稿及替换其三个约定附件。每次删除或上传附件、最终公开之前都会重新读取并核对草稿；发现人工公开或修改后立即停止。运行期间不要手动修改草稿或加入附件；如已修改，先人工核实和处理。上传失败时草稿保持未公开状态。
+
+`Latest` 只在尚无正式最新版，或新版本高于当前最新版时更新；发布旧版本不会抢占最新版，无法识别的手动最新版也不会被替换。请在 Actions 和 Release 页面确认本次运行成功后再分享下载链接。
 
 ## 扩展与资源
 
